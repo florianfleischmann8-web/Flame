@@ -1269,6 +1269,7 @@ jobs:
 
           // ---------------------------------------------------------------- Server
 
+          @OptIn(ExperimentalFoundationApi::class)
           @Composable
           fun Servers(openDlg: (Srv?) -> Unit) {
               var onlyFav by remember { mutableStateOf(false) }
