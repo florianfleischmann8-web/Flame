@@ -1,7 +1,8 @@
-# Flamme SMP – baut automatisch eine APK (Android-App, Liquid-Glass-Design)
+# Flamme SMP – baut automatisch eine APK (Android-App, helles Liquid-Glass-Design)
 # Nutzung: Diese Datei als  .github/workflows/build.yml  ins GitHub-Repository legen.
-# Danach: Actions → "Flamme SMP APK" → Run workflow  (oder einfach pushen).
-# Die fertige APK liegt danach unter "Artifacts" → FlammeSMP-APK.
+# Optional (für die Community-Bewertungen): im Repo unter Settings → Secrets and variables → Actions
+#   zwei Secrets anlegen:  SUPABASE_URL  und  SUPABASE_KEY  (siehe supabase_setup.sql).
+# Danach: Actions → "Flamme SMP APK" → Run workflow. Die APK liegt unter "Artifacts".
 name: Flamme SMP APK
 
 on:
@@ -81,6 +82,9 @@ jobs:
               id("org.jetbrains.kotlin.android")
           }
 
+          val sbUrl = (System.getenv("SUPABASE_URL") ?: "").replace("\"", "").trim()
+          val sbKey = (System.getenv("SUPABASE_KEY") ?: "").replace("\"", "").trim()
+
           android {
               namespace = "de.flamme.smp"
               compileSdk = 34
@@ -89,8 +93,10 @@ jobs:
                   applicationId = "de.flamme.smp"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "1.1"
+                  buildConfigField("String", "SB_URL", "\"" + sbUrl + "\"")
+                  buildConfigField("String", "SB_KEY", "\"" + sbKey + "\"")
               }
 
               signingConfigs {
@@ -118,6 +124,7 @@ jobs:
               }
               buildFeatures {
                   compose = true
+                  buildConfig = true
               }
               composeOptions {
                   kotlinCompilerExtensionVersion = "1.5.14"
@@ -139,6 +146,7 @@ jobs:
               implementation("androidx.compose.ui:ui-graphics")
               implementation("androidx.compose.foundation:foundation")
               implementation("androidx.compose.animation:animation")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
           }
           FLAMME_EOF_4
           mkdir -p app/src/main
@@ -205,70 +213,17 @@ jobs:
           </resources>
           FLAMME_EOF_7
           mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'FLAMME_EOF_8'
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'FLAMME_EOF_8'
           <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              xmlns:aapt="http://schemas.android.com/aapt"
-              android:width="108dp"
-              android:height="108dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
-              <path android:pathData="M54,30.08 C58.8,42.56 69.2,49.84 66.8,63.36 C65.2,73.76 58.8,77.92 54,77.92 C47.6,77.92 40.4,72.72 41.2,61.28 C41.6,54 45.2,49.84 48.4,44.64 C49.2,49.84 50.8,51.92 52.4,51.92 C51.6,43.6 51.6,36.32 54,30.08 Z">
-                  <aapt:attr name="android:fillColor">
-                      <gradient
-                          android:endX="54"
-                          android:endY="78"
-                          android:startX="54"
-                          android:startY="30"
-                          android:type="linear">
-                          <item android:color="#FFFFC145" android:offset="0" />
-                          <item android:color="#FFFF7A18" android:offset="0.5" />
-                          <item android:color="#FFFF3D00" android:offset="1" />
-                      </gradient>
-                  </aapt:attr>
-              </path>
-              <group
-                  android:pivotX="54"
-                  android:pivotY="76"
-                  android:scaleX="0.5"
-                  android:scaleY="0.52">
-                  <path
-                      android:fillColor="#FFFFF4D6"
-                      android:pathData="M54,30.08 C58.8,42.56 69.2,49.84 66.8,63.36 C65.2,73.76 58.8,77.92 54,77.92 C47.6,77.92 40.4,72.72 41.2,61.28 C41.6,54 45.2,49.84 48.4,44.64 C49.2,49.84 50.8,51.92 52.4,51.92 C51.6,43.6 51.6,36.32 54,30.08 Z" />
-              </group>
-          </vector>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <gradient
+                  android:angle="270"
+                  android:endColor="#FFD9F7E6"
+                  android:startColor="#FF8EDBFF" />
+          </shape>
           FLAMME_EOF_8
           mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'FLAMME_EOF_9'
-          <?xml version="1.0" encoding="utf-8"?>
-          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-              <item>
-                  <shape android:shape="rectangle">
-                      <gradient
-                          android:angle="270"
-                          android:endColor="#FF0B0510"
-                          android:startColor="#FF3A1245" />
-                  </shape>
-              </item>
-              <item
-                  android:bottom="6dp"
-                  android:left="6dp"
-                  android:right="6dp"
-                  android:top="6dp">
-                  <shape android:shape="oval">
-                      <gradient
-                          android:centerX="0.5"
-                          android:centerY="0.55"
-                          android:endColor="#00FF5A1F"
-                          android:gradientRadius="50%p"
-                          android:startColor="#99FF5A1F"
-                          android:type="radial" />
-                  </shape>
-              </item>
-          </layer-list>
-          FLAMME_EOF_9
-          mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_notif.xml <<'FLAMME_EOF_10'
+          cat > app/src/main/res/drawable/ic_notif.xml <<'FLAMME_EOF_9'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
               android:width="20dp"
@@ -283,17 +238,17 @@ jobs:
                       android:pathData="M54,30.08 C58.8,42.56 69.2,49.84 66.8,63.36 C65.2,73.76 58.8,77.92 54,77.92 C47.6,77.92 40.4,72.72 41.2,61.28 C41.6,54 45.2,49.84 48.4,44.64 C49.2,49.84 50.8,51.92 52.4,51.92 C51.6,43.6 51.6,36.32 54,30.08 Z" />
               </group>
           </vector>
-          FLAMME_EOF_10
+          FLAMME_EOF_9
           mkdir -p app/src/main/res/mipmap-anydpi-v26
-          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'FLAMME_EOF_11'
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'FLAMME_EOF_10'
           <?xml version="1.0" encoding="utf-8"?>
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
               <background android:drawable="@drawable/ic_launcher_background" />
               <foreground android:drawable="@drawable/ic_launcher_foreground" />
           </adaptive-icon>
-          FLAMME_EOF_11
+          FLAMME_EOF_10
           mkdir -p app/src/main/java/de/flamme/smp
-          cat > app/src/main/java/de/flamme/smp/Core.kt <<'FLAMME_EOF_12'
+          cat > app/src/main/java/de/flamme/smp/Core.kt <<'FLAMME_EOF_11'
           package de.flamme.smp
 
           import android.app.NotificationChannel
@@ -831,9 +786,9 @@ jobs:
                   super.onDestroy()
               }
           }
-          FLAMME_EOF_12
+          FLAMME_EOF_11
           mkdir -p app/src/main/java/de/flamme/smp
-          cat > app/src/main/java/de/flamme/smp/MainActivity.kt <<'FLAMME_EOF_13'
+          cat > app/src/main/java/de/flamme/smp/MainActivity.kt <<'FLAMME_EOF_12'
           package de.flamme.smp
 
           import android.Manifest
@@ -859,6 +814,7 @@ jobs:
           import androidx.compose.ui.graphics.drawscope.*
           import androidx.compose.ui.hapticfeedback.*
           import androidx.compose.ui.platform.*
+          import androidx.compose.ui.res.painterResource
           import androidx.compose.ui.text.*
           import androidx.compose.ui.text.font.*
           import androidx.compose.ui.text.input.*
@@ -869,12 +825,14 @@ jobs:
 
           val Ember = Color(0xFFFF7A18)
           val Fire = Color(0xFFFF3D00)
-          val Gold = Color(0xFFFFC145)
+          val Gold = Color(0xFFFFB400)
           val Pink = Color(0xFFFF2E63)
           val Violet = Color(0xFF7B2FF7)
           val Mint = Color(0xFF4ADE80)
-          val Bg0 = Color(0xFF0B0510)
-          val Bg1 = Color(0xFF1B0B22)
+          val Bg0 = Color(0xFFE6F6FF)
+          val Bg1 = Color(0xFFFFF1DC)
+          val Ink = Color(0xFF2C1B3F)
+          val Leaf = Color(0xFF16A34A)
 
           class MainActivity : ComponentActivity() {
               private val perm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -886,6 +844,7 @@ jobs:
                   window.navigationBarColor = android.graphics.Color.TRANSPARENT
                   WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
                   Store.load(this)
+                  Cfg.load(this)
                   if (Build.VERSION.SDK_INT >= 33) perm.launch(Manifest.permission.POST_NOTIFICATIONS)
                   setContent { App() }
               }
@@ -895,10 +854,13 @@ jobs:
 
           fun Modifier.glass(r: Dp = 28.dp, tint: Color = Color.White, a: Float = 0.10f): Modifier {
               val shape = RoundedCornerShape(r)
+              val tinted = tint != Color.White
               return this
+                  .shadow(6.dp, shape, ambientColor = Ember.copy(alpha = 0.25f), spotColor = Ember.copy(alpha = 0.35f))
                   .clip(shape)
-                  .background(Brush.verticalGradient(listOf(tint.copy(alpha = a + 0.07f), tint.copy(alpha = a * 0.45f))))
-                  .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.50f), Color.White.copy(alpha = 0.04f), Color.White.copy(alpha = 0.22f))), shape)
+                  .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.80f), Color.White.copy(alpha = 0.44f))))
+                  .background(if (tinted) Brush.verticalGradient(listOf(tint.copy(alpha = a + 0.10f), tint.copy(alpha = a))) else SolidColor(Color.Transparent))
+                  .border(1.2.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.80f))), shape)
           }
 
           @Composable
@@ -924,7 +886,7 @@ jobs:
           fun Txt(
               s: String,
               size: Int = 14,
-              color: Color = Color.White,
+              color: Color = Ink,
               w: FontWeight = FontWeight.Normal,
               mod: Modifier = Modifier,
               ls: Float = 0f,
@@ -946,24 +908,7 @@ jobs:
 
           @Composable
           fun FlameLogo(mod: Modifier = Modifier.fillMaxSize()) {
-              Canvas(mod) {
-                  val w = size.width
-                  val h = size.height
-                  val p = Path().apply {
-                      moveTo(w * 0.5f, h * 0.04f)
-                      cubicTo(w * 0.62f, h * 0.28f, w * 0.88f, h * 0.42f, w * 0.82f, h * 0.68f)
-                      cubicTo(w * 0.78f, h * 0.88f, w * 0.62f, h * 0.96f, w * 0.5f, h * 0.96f)
-                      cubicTo(w * 0.34f, h * 0.96f, w * 0.16f, h * 0.86f, w * 0.18f, h * 0.64f)
-                      cubicTo(w * 0.19f, h * 0.50f, w * 0.28f, h * 0.42f, w * 0.36f, h * 0.32f)
-                      cubicTo(w * 0.38f, h * 0.42f, w * 0.42f, h * 0.46f, w * 0.46f, h * 0.46f)
-                      cubicTo(w * 0.44f, h * 0.30f, w * 0.44f, h * 0.16f, w * 0.5f, h * 0.04f)
-                      close()
-                  }
-                  drawPath(p, Brush.verticalGradient(listOf(Gold, Ember, Fire), startY = 0f, endY = h))
-                  withTransform({ scale(0.5f, 0.52f, Offset(w * 0.5f, h * 0.95f)) }) {
-                      drawPath(p, Brush.verticalGradient(listOf(Color.White, Gold), startY = 0f, endY = h), alpha = 0.92f)
-                  }
-              }
+              Image(painterResource(R.drawable.logo), contentDescription = null, modifier = mod)
           }
 
           @Composable
@@ -976,12 +921,14 @@ jobs:
                   val w = size.width
                   val h = size.height
                   val r = w * 1.0f
-                  var ctr = Offset(w * (0.10f + 0.70f * a.value), h * (0.12f + 0.15f * b.value))
-                  drawRect(Brush.radialGradient(listOf(Fire.copy(alpha = 0.50f), Color.Transparent), center = ctr, radius = r))
-                  ctr = Offset(w * (0.95f - 0.70f * b.value), h * (0.55f + 0.20f * c.value))
-                  drawRect(Brush.radialGradient(listOf(Violet.copy(alpha = 0.40f), Color.Transparent), center = ctr, radius = r))
-                  ctr = Offset(w * (0.20f + 0.55f * c.value), h * (0.95f - 0.20f * a.value))
-                  drawRect(Brush.radialGradient(listOf(Ember.copy(alpha = 0.38f), Color.Transparent), center = ctr, radius = r))
+                  var ctr = Offset(w * (0.10f + 0.70f * a.value), h * (0.10f + 0.15f * b.value))
+                  drawRect(Brush.radialGradient(listOf(Ember.copy(alpha = 0.40f), Color.Transparent), center = ctr, radius = r))
+                  ctr = Offset(w * (0.95f - 0.70f * b.value), h * (0.45f + 0.20f * c.value))
+                  drawRect(Brush.radialGradient(listOf(Color(0xFF5AC8FA).copy(alpha = 0.50f), Color.Transparent), center = ctr, radius = r))
+                  ctr = Offset(w * (0.20f + 0.55f * c.value), h * (0.95f - 0.25f * a.value))
+                  drawRect(Brush.radialGradient(listOf(Color(0xFF7CE0B0).copy(alpha = 0.50f), Color.Transparent), center = ctr, radius = r))
+                  ctr = Offset(w * (0.80f - 0.40f * a.value), h * (0.80f - 0.15f * c.value))
+                  drawRect(Brush.radialGradient(listOf(Pink.copy(alpha = 0.22f), Color.Transparent), center = ctr, radius = r * 0.8f))
               }
           }
 
@@ -993,7 +940,11 @@ jobs:
               var open by remember { mutableStateOf(false) }
               var edit by remember { mutableStateOf<Srv?>(null) }
               var key by remember { mutableIntStateOf(0) }
+              var dopen by remember { mutableStateOf(false) }
+              var detail by remember { mutableStateOf<Target?>(null) }
+              var dkey by remember { mutableIntStateOf(0) }
               BackHandler(open) { open = false }
+              BackHandler(dopen) { dopen = false }
               Box(Modifier.fillMaxSize()) {
                   Aurora()
                   Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -1010,14 +961,19 @@ jobs:
                           ) { t ->
                               when (t) {
                                   0 -> Home()
-                                  1 -> Servers { s -> edit = s; key++; open = true }
-                                  else -> Info()
+                                  1 -> Servers(
+                                      { s -> edit = s; key++; open = true },
+                                      { s -> detail = Target(s.name, s.host, s.port); dkey++; dopen = true }
+                                  )
+                                  2 -> Info()
+                                  else -> Community { tg -> detail = tg; dkey++; dopen = true }
                               }
                           }
                       }
                       NavBar(tab) { tab = it }
                   }
                   Sheet(open, edit, key) { open = false }
+                  DetailSheet(dopen, detail, dkey) { dopen = false }
               }
           }
 
@@ -1025,38 +981,38 @@ jobs:
           fun Header() {
               val inf = rememberInfiniteTransition(label = "hdr")
               val br = inf.animateFloat(0.92f, 1.07f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "br")
-              val dot by animateColorAsState(if (Live.running) Mint else Color.White.copy(alpha = 0.35f), tween(500), label = "dot")
+              val dot by animateColorAsState(if (Live.running) Mint else Ink.copy(alpha = 0.30f), tween(500), label = "dot")
               Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                  Box(Modifier.size(46.dp).graphicsLayer { scaleX = br.value; scaleY = br.value }) { FlameLogo() }
+                  Box(Modifier.size(50.dp).graphicsLayer { scaleX = br.value; scaleY = br.value }) { FlameLogo() }
                   GapW(12)
                   Column(Modifier.weight(1f)) {
                       BasicText(
                           "FLAMME SMP",
                           style = TextStyle(brush = Brush.linearGradient(listOf(Gold, Ember, Pink)), fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
                       )
-                      Txt("LAN-Brücke für Minecraft Bedrock", 12, Color.White.copy(alpha = 0.55f))
+                      Txt("LAN-Brücke für Minecraft Bedrock", 12, Ink.copy(alpha = 0.55f))
                   }
                   Row(Modifier.glass(20.dp).padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                       Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
                       GapW(6)
-                      Txt(if (Live.running) "LIVE" else "AUS", 11, Color.White, FontWeight.Bold, ls = 1.5f)
+                      Txt(if (Live.running) "LIVE" else "AUS", 11, Ink, FontWeight.Bold, ls = 1.5f)
                   }
               }
           }
 
           @Composable
           fun NavBar(tab: Int, on: (Int) -> Unit) {
-              val items = listOf("🔥" to "Start", "★" to "Server", "ⓘ" to "Info")
+              val items = listOf("🔥" to "Start", "★" to "Server", "ⓘ" to "Info", "🌍" to "Community")
               BoxWithConstraints(
                   Modifier.navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth().height(66.dp).glass(33.dp)
               ) {
-                  val w = maxWidth / 3
+                  val w = maxWidth / 4
                   val x by animateDpAsState(w * tab, spring(dampingRatio = 0.72f, stiffness = 380f), label = "navx")
                   Box(
                       Modifier.offset(x = x).width(w).fillMaxHeight().padding(6.dp)
                           .clip(RoundedCornerShape(27.dp))
-                          .background(Brush.linearGradient(listOf(Fire.copy(alpha = 0.60f), Ember.copy(alpha = 0.35f))))
-                          .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(27.dp))
+                          .background(Brush.linearGradient(listOf(Fire, Ember)))
+                          .border(1.dp, Color.White.copy(alpha = 0.70f), RoundedCornerShape(27.dp))
                   )
                   Row(Modifier.fillMaxSize()) {
                       items.forEachIndexed { i, (ic, lb) ->
@@ -1065,8 +1021,8 @@ jobs:
                               horizontalAlignment = Alignment.CenterHorizontally,
                               verticalArrangement = Arrangement.Center
                           ) {
-                              Txt(ic, 18, Color.White)
-                              Txt(lb, 11, if (tab == i) Color.White else Color.White.copy(alpha = 0.55f), FontWeight.SemiBold)
+                              Txt(ic, 18, Ink)
+                              Txt(lb, 11, if (tab == i) Color.White else Ink.copy(alpha = 0.65f), FontWeight.SemiBold)
                           }
                       }
                   }
@@ -1097,14 +1053,14 @@ jobs:
                               style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round)
                           )
                       }
-                      drawCircle(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.04f))), radius = r * 0.66f, center = c)
+                      drawCircle(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.55f))), radius = r * 0.66f, center = c)
                       drawCircle(
-                          Brush.linearGradient(listOf(Color.White.copy(alpha = 0.6f), Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.25f))),
+                          Brush.linearGradient(listOf(Ember.copy(alpha = 0.7f), Gold.copy(alpha = 0.25f), Ember.copy(alpha = 0.5f))),
                           radius = r * 0.66f, center = c, style = Stroke(1.5.dp.toPx())
                       )
                   }
                   Box(
-                      Modifier.size(96.dp).graphicsLayer {
+                      Modifier.size(124.dp).graphicsLayer {
                           val k = 1f + (pulse.value - 1f) * 0.6f * on
                           scaleX = k
                           scaleY = k
@@ -1117,7 +1073,7 @@ jobs:
           @Composable
           fun Tile(mod: Modifier, label: String, value: String, accent: Color) {
               Column(mod.glass(22.dp).padding(16.dp)) {
-                  Txt(label, 11, Color.White.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
+                  Txt(label, 11, Ink.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
                   Gap(6)
                   AnimatedContent(
                       value,
@@ -1129,10 +1085,10 @@ jobs:
 
           @Composable
           fun Chip(label: String, fav: Boolean, selected: Boolean, onClick: () -> Unit) {
-              val bg by animateColorAsState(if (selected) Ember.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f), tween(300), label = "chip")
+              val bg by animateColorAsState(if (selected) Ember else Color.White.copy(alpha = 0.70f), tween(300), label = "chip")
               Row(
                   Modifier.bounce(onClick).clip(RoundedCornerShape(50)).background(bg)
-                      .border(1.dp, Color.White.copy(alpha = if (selected) 0.5f else 0.15f), RoundedCornerShape(50))
+                      .border(1.dp, Ember.copy(alpha = if (selected) 1f else 0.30f), RoundedCornerShape(50))
                       .padding(horizontal = 16.dp, vertical = 10.dp),
                   verticalAlignment = Alignment.CenterVertically
               ) {
@@ -1140,14 +1096,14 @@ jobs:
                       Txt("★", 13, Gold)
                       GapW(6)
                   }
-                  Txt(label, 14, Color.White, FontWeight.SemiBold)
+                  Txt(label, 14, if (selected) Color.White else Ink, FontWeight.SemiBold)
               }
           }
 
           @Composable
           fun GSwitch(on: Boolean, set: (Boolean) -> Unit) {
               val x by animateDpAsState(if (on) 24.dp else 0.dp, spring(dampingRatio = 0.6f, stiffness = 500f), label = "sx")
-              val bg by animateColorAsState(if (on) Ember else Color.White.copy(alpha = 0.18f), tween(300), label = "sbg")
+              val bg by animateColorAsState(if (on) Ember else Ink.copy(alpha = 0.18f), tween(300), label = "sbg")
               Box(Modifier.bounce { set(!on) }.width(56.dp).height(32.dp).clip(CircleShape).background(bg).padding(3.dp)) {
                   Box(Modifier.offset(x = x).size(26.dp).clip(CircleShape).background(Color.White))
               }
@@ -1168,9 +1124,9 @@ jobs:
 
               val pingTxt = if (!Live.running) "–" else if (Live.pingMs < 0) "offline" else Live.pingMs.toString() + " ms"
               val pingCol = when {
-                  !Live.running -> Color.White.copy(alpha = 0.5f)
+                  !Live.running -> Ink.copy(alpha = 0.45f)
                   Live.pingMs < 0 -> Pink
-                  Live.pingMs < 60 -> Mint
+                  Live.pingMs < 60 -> Leaf
                   Live.pingMs < 120 -> Gold
                   else -> Fire
               }
@@ -1198,11 +1154,11 @@ jobs:
                       Live.status,
                       transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) },
                       label = "status"
-                  ) { st -> Txt(st, 17, Color.White, FontWeight.Bold, align = TextAlign.Center) }
+                  ) { st -> Txt(st, 17, Ink, FontWeight.Bold, align = TextAlign.Center) }
                   Gap(4)
                   Txt(
                       if (Live.running) "Antippen zum Stoppen" else "Antippen zum Starten",
-                      12, Color.White.copy(alpha = 0.5f)
+                      12, Ink.copy(alpha = 0.5f)
                   )
                   Gap(16)
                   Row(
@@ -1216,12 +1172,12 @@ jobs:
                               restart()
                           }
                       }
-                      if (Store.servers.isEmpty()) Txt("Noch kein Server – öffne den Tab „Server“", 13, Color.White.copy(alpha = 0.6f))
+                      if (Store.servers.isEmpty()) Txt("Noch kein Server – öffne den Tab „Server“", 13, Ink.copy(alpha = 0.6f))
                   }
                   Gap(16)
                   Row(Modifier.appear(180).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                       Tile(Modifier.weight(1f), "PING", pingTxt, pingCol)
-                      Tile(Modifier.weight(1f), "SPIELER", if (Live.running) Live.players else "–", Color.White)
+                      Tile(Modifier.weight(1f), "SPIELER", if (Live.running) Live.players else "–", Ink)
                   }
                   Gap(12)
                   Row(Modifier.appear(260).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1231,9 +1187,9 @@ jobs:
                   Gap(12)
                   Row(Modifier.appear(340).fillMaxWidth().glass().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                       Column(Modifier.weight(1f)) {
-                          Txt("⚡ Turbo-Modus", 17, Color.White, FontWeight.Bold)
+                          Txt("⚡ Turbo-Modus", 17, Ink, FontWeight.Bold)
                           Gap(4)
-                          Txt("Low-Latency-WLAN, priorisierte Pakete und große Puffer – weniger Jitter und Ruckler im lokalen Netz.", 12, Color.White.copy(alpha = 0.6f))
+                          Txt("Low-Latency-WLAN, priorisierte Pakete und große Puffer – weniger Jitter und Ruckler im lokalen Netz.", 12, Ink.copy(alpha = 0.6f))
                       }
                       GapW(14)
                       GSwitch(Store.turbo) {
@@ -1248,19 +1204,19 @@ jobs:
                       exit = fadeOut(tween(250)) + shrinkVertically(tween(300))
                   ) {
                       Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(28.dp, Ember, 0.10f).padding(18.dp)) {
-                          Txt("So trittst du bei", 16, Color.White, FontWeight.Bold)
+                          Txt("So trittst du bei", 16, Ink, FontWeight.Bold)
                           Gap(8)
-                          Txt("1.  Minecraft auf der PS5 öffnen", 13, Color.White.copy(alpha = 0.8f))
-                          Txt("2.  Spielen → Freunde → LAN-Spiele", 13, Color.White.copy(alpha = 0.8f))
-                          Txt("3.  „" + (sel?.name ?: "") + "“ antippen", 13, Color.White.copy(alpha = 0.8f))
+                          Txt("1.  Minecraft auf der PS5 öffnen", 13, Ink.copy(alpha = 0.8f))
+                          Txt("2.  Spielen → Freunde → LAN-Spiele", 13, Ink.copy(alpha = 0.8f))
+                          Txt("3.  „" + (sel?.name ?: "") + "“ antippen", 13, Ink.copy(alpha = 0.8f))
                           Gap(8)
-                          Txt("Handy-IP: " + Net.localIp(), 12, Color.White.copy(alpha = 0.5f))
+                          Txt("Handy-IP: " + Net.localIp(), 12, Ink.copy(alpha = 0.5f))
                       }
                   }
                   val err = Live.error
                   if (err != null) {
                       Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(24.dp, Pink, 0.14f).padding(16.dp)) {
-                          Txt("⚠ " + err, 13, Color.White)
+                          Txt("⚠ " + err, 13, Ink)
                       }
                   }
                   Gap(20)
@@ -1271,19 +1227,19 @@ jobs:
 
           @OptIn(ExperimentalFoundationApi::class)
           @Composable
-          fun Servers(openDlg: (Srv?) -> Unit) {
+          fun Servers(openDlg: (Srv?) -> Unit, rate: (Srv) -> Unit) {
               var onlyFav by remember { mutableStateOf(false) }
               val list = Store.servers.filter { !onlyFav || it.fav }.sortedByDescending { it.fav }
               Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                   Row(verticalAlignment = Alignment.CenterVertically) {
                       Column(Modifier.weight(1f)) {
-                          Txt("Meine Server", 26, Color.White, FontWeight.Black)
-                          Txt(Store.servers.size.toString() + " gespeichert", 12, Color.White.copy(alpha = 0.55f))
+                          Txt("Meine Server", 26, Ink, FontWeight.Black)
+                          Txt(Store.servers.size.toString() + " gespeichert", 12, Ink.copy(alpha = 0.55f))
                       }
                       Box(
                           Modifier.bounce { openDlg(null) }.size(54.dp).glass(27.dp, Ember, 0.25f),
                           contentAlignment = Alignment.Center
-                      ) { Txt("+", 30, Color.White, FontWeight.Bold) }
+                      ) { Txt("+", 30, Ink, FontWeight.Bold) }
                   }
                   Gap(14)
                   Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1301,26 +1257,26 @@ jobs:
                               Column(Modifier.appear(0).fillMaxWidth().glass().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                   Txt("🔥", 40)
                                   Gap(8)
-                                  Txt(if (onlyFav) "Noch keine Favoriten" else "Noch keine Server", 17, Color.White, FontWeight.Bold)
+                                  Txt(if (onlyFav) "Noch keine Favoriten" else "Noch keine Server", 17, Ink, FontWeight.Bold)
                                   Gap(4)
-                                  Txt("Tippe oben rechts auf + und trage IP und Port ein.", 13, Color.White.copy(alpha = 0.6f), align = TextAlign.Center)
+                                  Txt("Tippe oben rechts auf + und trage IP und Port ein.", 13, Ink.copy(alpha = 0.6f), align = TextAlign.Center)
                               }
                           }
                       }
                       itemsIndexed(list, key = { _, s -> s.id }) { i, s ->
-                          ServerCard(Modifier.animateItemPlacement(), s, i) { openDlg(s) }
+                          ServerCard(Modifier.animateItemPlacement(), s, i, { openDlg(s) }, { rate(s) })
                       }
                   }
               }
           }
 
           @Composable
-          fun ServerCard(mod: Modifier, s: Srv, idx: Int, onEdit: () -> Unit) {
+          fun ServerCard(mod: Modifier, s: Srv, idx: Int, onEdit: () -> Unit, onRate: () -> Unit) {
               val ctx = LocalContext.current
               val selected = s.id == Store.selected
               val bc by animateColorAsState(if (selected) Ember else Color.White.copy(alpha = 0.0f), tween(350), label = "cardborder")
               val star by animateFloatAsState(if (s.fav) 1.15f else 1f, spring(dampingRatio = 0.3f, stiffness = 400f), label = "star")
-              val starCol by animateColorAsState(if (s.fav) Gold else Color.White.copy(alpha = 0.35f), tween(250), label = "starcol")
+              val starCol by animateColorAsState(if (s.fav) Gold else Ink.copy(alpha = 0.22f), tween(250), label = "starcol")
               Row(
                   mod.appear(idx * 70).bounce {
                       Store.selected = s.id
@@ -1337,11 +1293,15 @@ jobs:
                   ) { Txt("★", 24, starCol) }
                   GapW(8)
                   Column(Modifier.weight(1f)) {
-                      Txt(s.name, 17, Color.White, FontWeight.Bold, lines = 1)
-                      Txt(s.host + ":" + s.port, 12, Color.White.copy(alpha = 0.55f), lines = 1)
-                      if (selected) {
-                          Gap(4)
-                          Txt("● Ausgewählt", 11, Ember, FontWeight.Bold)
+                      Txt(s.name, 17, Ink, FontWeight.Bold, lines = 1)
+                      Txt(s.host + ":" + s.port, 12, Ink.copy(alpha = 0.55f), lines = 1)
+                      Gap(6)
+                      Row(verticalAlignment = Alignment.CenterVertically) {
+                          Pill("★ Bewerten", onRate)
+                          if (selected) {
+                              GapW(10)
+                              Txt("● Ausgewählt", 11, Ember, FontWeight.Bold)
+                          }
                       }
                   }
                   Box(
@@ -1354,14 +1314,14 @@ jobs:
           @Composable
           fun GField(label: String, v: String, onChange: (String) -> Unit, kb: KeyboardType = KeyboardType.Text) {
               Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                  Txt(label, 11, Color.White.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
+                  Txt(label, 11, Ink.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
                   Gap(6)
                   Box(Modifier.fillMaxWidth().glass(16.dp, Color.White, 0.06f).padding(horizontal = 16.dp, vertical = 14.dp)) {
                       BasicTextField(
                           value = v,
                           onValueChange = onChange,
                           singleLine = true,
-                          textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                          textStyle = TextStyle(color = Ink, fontSize = 16.sp),
                           cursorBrush = SolidColor(Ember),
                           keyboardOptions = KeyboardOptions(keyboardType = kb),
                           modifier = Modifier.fillMaxWidth()
@@ -1373,7 +1333,7 @@ jobs:
           @Composable
           fun GButton(text: String, tint: Color, mod: Modifier, onClick: () -> Unit) {
               Box(mod.bounce(onClick).glass(20.dp, tint, 0.30f).padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
-                  Txt(text, 15, Color.White, FontWeight.Bold)
+                  Txt(text, 15, Ink, FontWeight.Bold)
               }
           }
 
@@ -1382,7 +1342,7 @@ jobs:
               val ctx = LocalContext.current
               AnimatedVisibility(open, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
                   Box(
-                      Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
+                      Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))
                           .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { close() }
                   )
               }
@@ -1420,9 +1380,9 @@ jobs:
 
                   Column(
                       Modifier.imePadding().navigationBarsPadding().padding(12.dp).fillMaxWidth()
-                          .glass(36.dp, Color(0xFF2A1233), 0.55f).padding(22.dp)
+                          .glass(36.dp, Color(0xFFFFF1E0), 0.45f).padding(22.dp)
                   ) {
-                      Txt(if (srv == null) "Server hinzufügen" else "Server bearbeiten", 20, Color.White, FontWeight.Black)
+                      Txt(if (srv == null) "Server hinzufügen" else "Server bearbeiten", 20, Ink, FontWeight.Black)
                       Gap(16)
                       GField("NAME", name, { name = it })
                       GField("IP / DOMAIN", host, { host = it }, KeyboardType.Uri)
@@ -1450,10 +1410,10 @@ jobs:
           @Composable
           fun InfoCard(idx: Int, title: String, lines: List<String>) {
               Column(Modifier.appear(idx * 90).fillMaxWidth().glass().padding(18.dp)) {
-                  Txt(title, 16, Color.White, FontWeight.Bold)
+                  Txt(title, 16, Ink, FontWeight.Bold)
                   Gap(8)
                   for (l in lines) {
-                      Txt(l, 13, Color.White.copy(alpha = 0.72f))
+                      Txt(l, 13, Ink.copy(alpha = 0.72f))
                       Gap(5)
                   }
               }
@@ -1462,7 +1422,7 @@ jobs:
           @Composable
           fun Info() {
               Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-                  Txt("Info", 26, Color.White, FontWeight.Black)
+                  Txt("Info", 26, Ink, FontWeight.Black)
                   Gap(14)
                   InfoCard(
                       0, "So funktioniert's", listOf(
@@ -1495,17 +1455,582 @@ jobs:
                           "•  Tritt er auch mit anderen LAN-Apps auf, liegt es am Spiel-Update."
                       )
                   )
+                  Gap(12)
+                  InfoCard(
+                      4, "🌍 Community", listOf(
+                          "Im Tab „Community“ siehst du alle bewerteten Server und kannst nach Name oder IP suchen.",
+                          "Bewerten: Im Tab „Server“ bei deinem Server „★ Bewerten“ tippen – oder in der Community einen Server antippen."
+                      )
+                  )
                   Gap(18)
-                  Txt("Flamme SMP · Version 1.0", 12, Color.White.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
+                  Txt("Flamme SMP · Version 1.1", 12, Ink.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
                   Gap(20)
               }
           }
+          FLAMME_EOF_12
+          mkdir -p app/src/main/java/de/flamme/smp
+          cat > app/src/main/java/de/flamme/smp/Community.kt <<'FLAMME_EOF_13'
+          package de.flamme.smp
+
+          import android.content.Context
+          import androidx.compose.animation.*
+          import androidx.compose.animation.core.*
+          import androidx.compose.foundation.*
+          import androidx.compose.foundation.interaction.*
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.*
+          import androidx.compose.foundation.shape.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.*
+          import androidx.compose.ui.draw.*
+          import androidx.compose.ui.graphics.*
+          import androidx.compose.ui.platform.*
+          import androidx.compose.ui.text.font.*
+          import androidx.compose.ui.text.input.*
+          import androidx.compose.ui.text.style.*
+          import androidx.compose.ui.unit.*
+          import kotlinx.coroutines.CancellationException
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.net.URLEncoder
+          import java.util.UUID
+
+          data class Target(val name: String, val host: String, val port: Int)
+          data class Stat(val name: String, val host: String, val port: Int, val avg: Double, val votes: Int)
+          data class Review(val stars: Int, val comment: String, val date: String)
+
+          fun starsTxt(avg: Double): String {
+              val n = Math.round(avg).toInt().coerceIn(0, 5)
+              return "★".repeat(n) + "☆".repeat(5 - n)
+          }
+
+          // ---------------------------------------------------------------- Konfiguration + API (Supabase)
+
+          object Cfg {
+              var url by mutableStateOf("")
+              var key by mutableStateOf("")
+              var device = ""
+              val baked: Boolean get() = BuildConfig.SB_URL.isNotBlank() && BuildConfig.SB_KEY.isNotBlank()
+              val ready: Boolean get() = url.isNotBlank() && key.isNotBlank()
+
+              fun load(c: Context) {
+                  val sp = c.getSharedPreferences("flamme", Context.MODE_PRIVATE)
+                  url = if (baked) BuildConfig.SB_URL else (sp.getString("sb_url", "") ?: "")
+                  key = if (baked) BuildConfig.SB_KEY else (sp.getString("sb_key", "") ?: "")
+                  device = sp.getString("dev", null) ?: UUID.randomUUID().toString().also { sp.edit().putString("dev", it).apply() }
+              }
+
+              fun save(c: Context, u: String, k: String) {
+                  c.getSharedPreferences("flamme", Context.MODE_PRIVATE).edit()
+                      .putString("sb_url", u.trim()).putString("sb_key", k.trim()).apply()
+                  url = u.trim()
+                  key = k.trim()
+              }
+          }
+
+          object Api {
+              private fun req(method: String, path: String, body: String? = null): String {
+                  val c = URL(Cfg.url.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
+                  try {
+                      c.requestMethod = method
+                      c.connectTimeout = 8000
+                      c.readTimeout = 10000
+                      c.setRequestProperty("apikey", Cfg.key)
+                      if (Cfg.key.startsWith("eyJ")) c.setRequestProperty("Authorization", "Bearer " + Cfg.key)
+                      c.setRequestProperty("Accept", "application/json")
+                      if (body != null) {
+                          c.doOutput = true
+                          c.setRequestProperty("Content-Type", "application/json")
+                          c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                      }
+                      val code = c.responseCode
+                      val st = if (code in 200..299) c.inputStream else c.errorStream
+                      val txt = st?.bufferedReader()?.use { it.readText() } ?: ""
+                      if (code !in 200..299) throw Exception("Server-Fehler " + code + ": " + txt.take(100))
+                      return txt
+                  } finally {
+                      c.disconnect()
+                  }
+              }
+
+              private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
+
+              private fun parseStats(txt: String): List<Stat> {
+                  val a = JSONArray(txt)
+                  val out = ArrayList<Stat>()
+                  for (i in 0 until a.length()) {
+                      val o = a.getJSONObject(i)
+                      out.add(Stat(o.optString("name", "?"), o.optString("host", ""), o.optInt("port", 19132), o.optDouble("avg_stars", 0.0), o.optInt("votes", 0)))
+                  }
+                  return out
+              }
+
+              fun stats(q: String): List<Stat> {
+                  var path = "/rest/v1/server_stats?select=*&order=votes.desc,avg_stars.desc&limit=60"
+                  val clean = q.replace(Regex("[,()*%&#]"), " ").trim()
+                  if (clean.isNotEmpty()) {
+                      val e = enc("*" + clean + "*")
+                      path += "&or=(name.ilike." + e + ",host.ilike." + e + ")"
+                  }
+                  return parseStats(req("GET", path))
+              }
+
+              fun statOf(host: String, port: Int): Stat? {
+                  val path = "/rest/v1/server_stats?select=*&host=eq." + enc(host.trim().lowercase()) + "&port=eq." + port
+                  return parseStats(req("GET", path)).firstOrNull()
+              }
+
+              fun reviews(host: String, port: Int): List<Review> {
+                  val path = "/rest/v1/ratings?select=stars,comment,updated_at&host=eq." + enc(host.trim().lowercase()) +
+                      "&port=eq." + port + "&order=updated_at.desc&limit=40"
+                  val a = JSONArray(req("GET", path))
+                  val out = ArrayList<Review>()
+                  for (i in 0 until a.length()) {
+                      val o = a.getJSONObject(i)
+                      out.add(Review(o.optInt("stars", 0), o.optString("comment", ""), o.optString("updated_at", "").take(10)))
+                  }
+                  return out
+              }
+
+              fun rate(t: Target, stars: Int, comment: String) {
+                  val b = JSONObject()
+                      .put("p_host", t.host.trim().lowercase())
+                      .put("p_port", t.port)
+                      .put("p_name", t.name)
+                      .put("p_stars", stars)
+                      .put("p_comment", comment.trim())
+                      .put("p_device", Cfg.device)
+                  req("POST", "/rest/v1/rpc/rate_server", b.toString())
+              }
+          }
+
+          // ---------------------------------------------------------------- UI
+
+          @Composable
+          fun Pill(text: String, onClick: () -> Unit) {
+              Box(
+                  Modifier.bounce(onClick).clip(RoundedCornerShape(50))
+                      .background(Brush.horizontalGradient(listOf(Gold, Ember)))
+                      .padding(horizontal = 12.dp, vertical = 6.dp)
+              ) { Txt(text, 12, Color.White, FontWeight.Bold) }
+          }
+
+          @Composable
+          fun StatCard(s: Stat, idx: Int, onClick: () -> Unit) {
+              Row(
+                  Modifier.appear(idx * 60).bounce(onClick).fillMaxWidth().glass(24.dp).padding(16.dp),
+                  verticalAlignment = Alignment.CenterVertically
+              ) {
+                  Box(
+                      Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(Brush.linearGradient(listOf(Gold, Ember))),
+                      contentAlignment = Alignment.Center
+                  ) { Txt(String.format("%.1f", s.avg), 18, Color.White, FontWeight.Black) }
+                  GapW(14)
+                  Column(Modifier.weight(1f)) {
+                      Txt(s.name, 17, Ink, FontWeight.Bold, lines = 1)
+                      Txt(s.host + ":" + s.port, 12, Ink.copy(alpha = 0.55f), lines = 1)
+                      Gap(2)
+                      Txt(starsTxt(s.avg) + "  ·  " + s.votes + (if (s.votes == 1) " Bewertung" else " Bewertungen"), 12, Gold, FontWeight.Bold)
+                  }
+                  Txt("›", 26, Ink.copy(alpha = 0.4f))
+              }
+          }
+
+          @Composable
+          fun Community(open: (Target) -> Unit) {
+              val ctx = LocalContext.current
+              var q by remember { mutableStateOf("") }
+              var items by remember { mutableStateOf<List<Stat>>(emptyList()) }
+              var loading by remember { mutableStateOf(false) }
+              var err by remember { mutableStateOf<String?>(null) }
+              var tick by remember { mutableIntStateOf(0) }
+
+              LaunchedEffect(q, tick, Cfg.ready) {
+                  if (!Cfg.ready) return@LaunchedEffect
+                  if (q.isNotEmpty()) delay(450)
+                  loading = true
+                  err = null
+                  try {
+                      items = withContext(Dispatchers.IO) { Api.stats(q) }
+                  } catch (e: CancellationException) {
+                      throw e
+                  } catch (e: Exception) {
+                      err = "Konnte nicht laden: " + (e.message ?: "Netzwerkfehler")
+                  }
+                  loading = false
+              }
+
+              Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                      Column(Modifier.weight(1f)) {
+                          Txt("Community", 26, Ink, FontWeight.Black)
+                          Txt("Alle bewerteten Server – suche und bewerte", 12, Ink.copy(alpha = 0.55f))
+                      }
+                      Box(
+                          Modifier.bounce { tick++ }.size(48.dp).glass(24.dp),
+                          contentAlignment = Alignment.Center
+                      ) { Txt("↻", 22, Ink, FontWeight.Bold) }
+                  }
+                  Gap(12)
+                  if (!Cfg.ready) {
+                      var u by remember { mutableStateOf("") }
+                      var k by remember { mutableStateOf("") }
+                      Column(Modifier.verticalScroll(rememberScrollState())) {
+                          Column(Modifier.appear(0).fillMaxWidth().glass(28.dp, Ember, 0.06f).padding(18.dp)) {
+                              Txt("Community einrichten", 18, Ink, FontWeight.Bold)
+                              Gap(6)
+                              Txt(
+                                  "Dafür wird ein kostenloses Supabase-Projekt gebraucht (siehe Datei supabase_setup.sql). Trage hier die Project-URL und den öffentlichen (anon/publishable) Key ein.",
+                                  13, Ink.copy(alpha = 0.7f)
+                              )
+                              Gap(14)
+                              GField("SUPABASE URL", u, { u = it }, KeyboardType.Uri)
+                              GField("ANON / PUBLISHABLE KEY", k, { k = it })
+                              GButton("Speichern", Ember, Modifier.fillMaxWidth()) {
+                                  if (u.isNotBlank() && k.isNotBlank()) {
+                                      Cfg.save(ctx, u, k)
+                                      tick++
+                                  }
+                              }
+                          }
+                      }
+                  } else {
+                      GField("SUCHE (NAME ODER IP)", q, { q = it })
+                      val e = err
+                      if (e != null) {
+                          Column(Modifier.fillMaxWidth().glass(20.dp, Pink, 0.12f).padding(14.dp)) { Txt("⚠ " + e, 13, Ink) }
+                          Gap(10)
+                      }
+                      if (loading && items.isEmpty()) Txt("Lade…", 14, Ink.copy(alpha = 0.6f))
+                      LazyColumn(
+                          Modifier.weight(1f).fillMaxWidth(),
+                          verticalArrangement = Arrangement.spacedBy(12.dp),
+                          contentPadding = PaddingValues(bottom = 16.dp)
+                      ) {
+                          if (!loading && items.isEmpty() && err == null) {
+                              item {
+                                  Column(Modifier.fillMaxWidth().glass().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                      Txt("🔍", 36)
+                                      Gap(6)
+                                      Txt(if (q.isEmpty()) "Noch keine Bewertungen" else "Nichts gefunden", 16, Ink, FontWeight.Bold)
+                                      Gap(4)
+                                      Txt("Bewerte deinen Server im Tab „Server“ – dann erscheint er hier für alle.", 13, Ink.copy(alpha = 0.6f), align = TextAlign.Center)
+                                  }
+                              }
+                          }
+                          itemsIndexed(items, key = { _, s -> s.host + ":" + s.port }) { i, s ->
+                              StatCard(s, i) { open(Target(s.name, s.host, s.port)) }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun BoxScope.DetailSheet(open: Boolean, t: Target?, key: Int, close: () -> Unit) {
+              val ctx = LocalContext.current
+              AnimatedVisibility(open, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
+                  Box(
+                      Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))
+                          .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { close() }
+                  )
+              }
+              AnimatedVisibility(
+                  open,
+                  modifier = Modifier.align(Alignment.BottomCenter),
+                  enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 300f)) { it } + fadeIn(tween(200)),
+                  exit = slideOutVertically(tween(250)) { it } + fadeOut(tween(200))
+              ) {
+                  val scope = rememberCoroutineScope()
+                  var stat by remember(key) { mutableStateOf<Stat?>(null) }
+                  var revs by remember(key) { mutableStateOf<List<Review>>(emptyList()) }
+                  var stars by remember(key) { mutableIntStateOf(0) }
+                  var comment by remember(key) { mutableStateOf("") }
+                  var msg by remember(key) { mutableStateOf<String?>(null) }
+                  var busy by remember(key) { mutableStateOf(false) }
+                  var reload by remember(key) { mutableIntStateOf(0) }
+
+                  LaunchedEffect(key, reload) {
+                      if (t != null && Cfg.ready) {
+                          try {
+                              val s = withContext(Dispatchers.IO) { Api.statOf(t.host, t.port) }
+                              val r = withContext(Dispatchers.IO) { Api.reviews(t.host, t.port) }
+                              stat = s
+                              revs = r
+                          } catch (e: CancellationException) {
+                              throw e
+                          } catch (e: Exception) {
+                              msg = "Laden fehlgeschlagen: " + (e.message ?: "Netzwerk")
+                          }
+                      }
+                  }
+
+                  Column(
+                      Modifier.imePadding().navigationBarsPadding().padding(12.dp).fillMaxWidth()
+                          .glass(36.dp, Color(0xFFFFF1E0), 0.45f).padding(22.dp)
+                  ) {
+                      Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
+                          Txt(t?.name ?: "", 22, Ink, FontWeight.Black, lines = 1)
+                          Txt((t?.host ?: "") + ":" + (t?.port ?: 0), 12, Ink.copy(alpha = 0.55f))
+                          Gap(10)
+                          val st = stat
+                          if (st != null) {
+                              Txt(String.format("%.1f", st.avg) + "  " + starsTxt(st.avg) + "  ·  " + st.votes + " Bewertung(en)", 15, Gold, FontWeight.Bold)
+                          } else {
+                              Txt("Noch keine Bewertungen – sei der Erste!", 14, Ink.copy(alpha = 0.6f))
+                          }
+                          Gap(16)
+                          Txt("DEINE BEWERTUNG", 11, Ink.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
+                          Gap(4)
+                          Row {
+                              for (i in 1..5) {
+                                  val col by animateColorAsState(if (i <= stars) Gold else Ink.copy(alpha = 0.18f), tween(200), label = "star")
+                                  Box(Modifier.bounce { stars = i }.size(48.dp), contentAlignment = Alignment.Center) { Txt("★", 36, col) }
+                              }
+                          }
+                          Gap(6)
+                          GField("KOMMENTAR (OPTIONAL)", comment, { comment = it.take(200) })
+                          val m = msg
+                          if (m != null) {
+                              Txt(m, 13, Ink, FontWeight.SemiBold)
+                              Gap(10)
+                          }
+                          Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                              if (t != null && Store.servers.none { it.host.equals(t.host, true) && it.port == t.port }) {
+                                  GButton("+ Meine Server", Color(0xFF38BDF8), Modifier.weight(1f)) {
+                                      Store.upsert(ctx, Srv(UUID.randomUUID().toString(), t.name, t.host, t.port))
+                                      msg = "Server gespeichert ✓"
+                                  }
+                              }
+                              GButton(if (busy) "Sende…" else "★ Bewerten", Ember, Modifier.weight(1f)) {
+                                  if (t == null || busy) return@GButton
+                                  if (!Cfg.ready) {
+                                      msg = "Community ist noch nicht eingerichtet (Tab „Community“)."
+                                      return@GButton
+                                  }
+                                  if (stars == 0) {
+                                      msg = "Bitte zuerst Sterne wählen."
+                                      return@GButton
+                                  }
+                                  busy = true
+                                  scope.launch {
+                                      try {
+                                          withContext(Dispatchers.IO) { Api.rate(t, stars, comment) }
+                                          msg = "Danke für deine Bewertung! ★"
+                                          reload++
+                                      } catch (e: CancellationException) {
+                                          throw e
+                                      } catch (e: Exception) {
+                                          msg = "Senden fehlgeschlagen: " + (e.message ?: "Netzwerk")
+                                      }
+                                      busy = false
+                                  }
+                              }
+                          }
+                          if (revs.isNotEmpty()) {
+                              Gap(18)
+                              Txt("BEWERTUNGEN", 11, Ink.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
+                              Gap(8)
+                              for (r in revs) {
+                                  Column(Modifier.fillMaxWidth().glass(16.dp).padding(12.dp)) {
+                                      Txt(starsTxt(r.stars.toDouble()) + "   " + r.date, 12, Gold, FontWeight.Bold)
+                                      if (r.comment.isNotBlank()) {
+                                          Gap(2)
+                                          Txt(r.comment, 13, Ink)
+                                      }
+                                  }
+                                  Gap(8)
+                              }
+                          }
+                      }
+                  }
+              }
+          }
           FLAMME_EOF_13
-          # Fester Signatur-Schlüssel (damit Updates über die alte App installiert werden können)
+          mkdir -p tools
+          cat > tools/make_icons.py <<'FLAMME_EOF_14'
+          import os
+          import struct
+          import sys
+          import zlib
+
+          OUT = sys.argv[1] if len(sys.argv) > 1 else "."
+
+
+          def lcg(seed):
+              st = [seed]
+
+              def nxt():
+                  st[0] = (st[0] * 1103515245 + 12345) & 0x7FFFFFFF
+                  return st[0] >> 8
+
+              return nxt
+
+
+          GREENS = [(94, 158, 60), (107, 174, 69), (121, 192, 90), (134, 204, 102)]
+          DIRT = [(134, 96, 67), (122, 85, 56), (107, 74, 48), (149, 112, 79)]
+
+
+          def tex_top():
+              r = lcg(7)
+              return [[GREENS[r() % 4] for _ in range(16)] for _ in range(16)]
+
+
+          def tex_side():
+              r = lcg(21)
+              drip = [3 + (r() % 3) for _ in range(16)]
+              t = []
+              for y in range(16):
+                  row = []
+                  for x in range(16):
+                      if y < drip[x]:
+                          row.append(GREENS[r() % 3])
+                      else:
+                          v = r() % 12
+                          if v == 0:
+                              row.append((92, 63, 40))
+                          elif v == 1:
+                              row.append((160, 128, 94))
+                          else:
+                              row.append(DIRT[r() % 4])
+                  t.append(row)
+              return t
+
+
+          def fire():
+              tongues = [(1.5, 7), (4.5, 11), (7.5, 15), (10.5, 10), (13.5, 6)]
+              H = []
+              for x in range(16):
+                  h = 2.0
+                  for cx, ht in tongues:
+                      h = max(h, ht - abs(x - cx) * 3.2)
+                  H.append(int(h))
+              grid = [[None] * 16 for _ in range(16)]
+              for x in range(16):
+                  near = min(abs(x - cx) for cx, _ in tongues)
+                  for y in range(H[x]):
+                      t = y / max(H[x], 1)
+                      if near <= 0.6 and t < 0.30:
+                          c = (255, 244, 170)
+                      elif near <= 1.1 and t < 0.60:
+                          c = (255, 201, 58)
+                      elif t < 0.55:
+                          c = (247, 130, 27)
+                      elif t < 0.82:
+                          c = (233, 90, 18)
+                      else:
+                          c = (205, 52, 12)
+                      grid[15 - y][x] = c
+              return grid
+
+
+          def shade(c, f):
+              return (int(c[0] * f), int(c[1] * f), int(c[2] * f))
+
+
+          def render(S, fill):
+              SS = 2
+              N = S * SS
+              top, left, right = tex_top(), tex_side(), tex_side()
+              fr = fire()
+              s = fill * N / 2.46
+              cx0 = N / 2.0
+              cy0 = N / 2.0 + 0.23 * s
+              fc = 0.06 * s
+              fx0 = cx0 - 8 * fc
+              fy_bottom = cy0 - 0.5 * s + 0.05 * s
+              fy0 = fy_bottom - 16 * fc
+              y_min = int(cy0 - 1.5 * s)
+              y_max = int(cy0 + 1.02 * s)
+              eps = 1e-6
+              hx = 0.8660254 * s
+              hy = 0.5 * s
+              big = [[None] * N for _ in range(N)]
+              for py in range(max(0, y_min), min(N, y_max + 1)):
+                  Yv = (py + 0.5 - cy0) / hy
+                  row = big[py]
+                  for px in range(N):
+                      X = (px + 0.5 - cx0) / hx
+                      col = None
+                      # Flamme (vorne)
+                      fcx = (px + 0.5 - fx0) / fc
+                      fcy = (py + 0.5 - fy0) / fc
+                      if 0 <= fcx < 16 and 0 <= fcy < 16:
+                          col = fr[int(fcy)][int(fcx)]
+                      if col is None:
+                          x = (Yv + 2 + X) / 2
+                          y = (Yv + 2 - X) / 2
+                          if -eps <= x <= 1 + eps and -eps <= y <= 1 + eps:
+                              col = shade(top[min(15, int(y * 16))][min(15, max(0, int(x * 16)))], 1.0)
+                          else:
+                              x = X + 1
+                              z = (x + 1 - Yv) / 2
+                              if -eps <= x <= 1 + eps and -eps <= z <= 1 + eps:
+                                  col = shade(left[min(15, max(0, int((1 - z) * 16)))][min(15, max(0, int(x * 16)))], 0.80)
+                              else:
+                                  y = 1 - X
+                                  z = (1 + y - Yv) / 2
+                                  if -eps <= y <= 1 + eps and -eps <= z <= 1 + eps:
+                                      col = shade(right[min(15, max(0, int((1 - z) * 16)))][min(15, max(0, int((1 - y) * 16)))], 0.60)
+                      row[px] = col
+              px_out = []
+              for y in range(S):
+                  for x in range(S):
+                      r = g = b = a = 0
+                      for dy in range(SS):
+                          for dx in range(SS):
+                              c = big[y * SS + dy][x * SS + dx]
+                              if c is not None:
+                                  r += c[0]
+                                  g += c[1]
+                                  b += c[2]
+                                  a += 1
+                      if a == 0:
+                          px_out.append((0, 0, 0, 0))
+                      else:
+                          px_out.append((r // a, g // a, b // a, a * 255 // (SS * SS)))
+              return px_out
+
+
+          def write_png(path, S, px):
+              raw = bytearray()
+              for y in range(S):
+                  raw.append(0)
+                  for x in range(S):
+                      raw.extend(px[y * S + x])
+
+              def chunk(tag, data):
+                  c = struct.pack(">I", len(data)) + tag + data
+                  return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+              png = b"\x89PNG\r\n\x1a\n"
+              png += chunk(b"IHDR", struct.pack(">IIBBBBB", S, S, 8, 6, 0, 0, 0))
+              png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+              png += chunk(b"IEND", b"")
+              with open(path, "wb") as f:
+                  f.write(png)
+
+
+          d = os.path.join(OUT, "app/src/main/res/drawable-nodpi")
+          os.makedirs(d, exist_ok=True)
+          write_png(os.path.join(d, "logo.png"), 384, render(384, 0.94))
+          write_png(os.path.join(d, "ic_launcher_foreground.png"), 432, render(432, 0.62))
+          print("Logo erzeugt")
+          FLAMME_EOF_14
           echo 'MIIKRAIBAzCCCe4GCSqGSIb3DQEHAaCCCd8EggnbMIIJ1zCCBa4GCSqGSIb3DQEHAaCCBZ8EggWbMIIFlzCCBZMGCyqGSIb3DQEMCgECoIIFQDCCBTwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUMMCsEFC/QjlK7eYOYZ620L3C23oK39+QoAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQNyeyBhNSXocZiISuXsjNwwSCBNBoy1oUaajSFIT6oew04szEM6tq2lAt5cWxCS+d1ygUhz07uLMyOHcO9NCe6JcTEA1Rsj9Gx19IzVLkendX57t+pokgud6Caoa10iNNDmG3qNcI4HSzEXXq6CVJHMifn8Tz+VS3VZeNxn+okmWAbPe0knFBhGOLZOE/9raLTQEw9oeJPIJQaUv0k5zDSCJ8VQ3+hcEKo2tUJGNWSXA3nnMdRMJ/9TXmMA7Tq7ZX0Phyzb072jaGsNRhBQrq9VyS4zPf9aH0Th6l/oxGjQ9yECKByINGhmyDPKkrovrd52NFOxIQ++T+FT5rrUqBOJq/Wmd/cqqQR7GYf6ruxu7Mat0szpOmD6oGAYNz3xBK14ne0BebI95iGl7KrhPPeOel97PEyULMCmHuEYw9U3oFmExtfiuPGblbgL/krWqyH5f6+l8e7asePmSG9LN04FFr6fDv9q3ZEFUZe6rgk/JwhpnMy0r5hiJ6RLDBSkIKb50vg9Ize8d/fqO+7uBKK7/WSgLwi+IX8CCXtTmApUx78M/acrF4IwV/UJs3VZJ6pnPfM0owJcJcd4nMJgEYb34cOszMhbV2Sim5KVPbyQ+ThMViccX5tfeNtlmS3fSfHfwhCqjiCDjHcl3r+IxiSnesYIbk/qqlhvbNzMFzqv4D52MYL7jhTTzsPqI9aAMWY+LTL2S2Vbghm7FmTI8gLiWtexZOoMexwsB2vKXJPTHEfGZ4oRT10+UdMYiBgR/g3JJ2yG/T9EwDxd4TrLm/hZ5B4BzDnFJSUnezqieEnGXMpiyggO8nnVR9KZeT5Fau9hyozUavUwa+C6zkOB1kvMExJlJmAV2PqYzNdNLiifu9ugK3KEtFKIklpegOCCoyh2GW3s8U85I8GcGBDvlAbnGuHFBQOc+zbjHuXjaa3gmHoffci6F1ViE/BotDsL1DPQjV0QBtlhGZNpbk2xcAFfy8HfHvCyvmxNEGq49Y3Q1FNXyRwU96H+Gy2FXmqwbHhw6iTnHtXt62qRpWBgQgAs6zbp2U6xm3jMXNxLDiTJK0qSCQfs+eZ2ZGE16FmcQ2xerVIzpug0pgTp8EL8AfNtWJR0w1/0E+dJM+6hWSorlUcCcHG2dqcik7owaXCztieUt1yxetwyIOSnTHQvphcHU7HM+Nn/AGZfQoV5HF4DLpJ47LowFN9NfZjfZoQW/XnJpW9CLeMNllfMFY0GN8Wr2abGqUKHy8j+gYc8yQ4d37J4j1zAvMth53gKHWAajEoG1bq/8bR0RFj5U5TgW8sXCJ7sF0pgQRkMh4DtIwFqAdXs/DwvpUV4AE/rWnkGRwvMCi9FmdlFhWNgIWtYGY6CAGjUdc8xIVTXu5ckcTC3CSb59Qlrbe5l6nKEg4SNl7bHjeCH/RVbByeZtKK4ppLxHRMJqNQBK9z7FO3Fm+kwAJVjbai2XhVUtBcPwR/mTMIy84Gn9C/HYhRgWqDQwqJujVW7A7vV4mqpf1LNeO5QWnLKWWPJv8zdACSuIC0vOoMsDJHET8NtScDthM81gMGDUXnTBwBFtRgNsRHQuyu89l5eVTPTQDLe6JlAxVgi2yo1YS9P70FUWMVI+nW2xzmGtI8+TnBtDoQc4x1iudjmnd8OokUZMEIp8NY1T9JemJjgm9BTFAMBsGCSqGSIb3DQEJFDEOHgwAZgBsAGEAbQBtAGUwIQYJKoZIhvcNAQkVMRQEElRpbWUgMTc5MzQ0NDcyNTM3NzCCBCEGCSqGSIb3DQEHBqCCBBIwggQOAgEAMIIEBwYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBT5TB6ZHigZ+O7eRuo9Es/aGBrCSAICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEJv/rCXWmqDgOfBqpElUlW6AggOQg1g5B74kdywZ/ITE/4jH4kBg74mmwbI22WFPvgK3v4MT3ckmmKC17vubjDCF89rd6U41eISpFKdsnkEcVDpUiS+31bRbX/n9iLc9VxHypwynbx54A7JzFh437FqTx8D+Lfr2KXueJ1jtC0WBsVUmYaTFUT4rus7wVwR+F7vI+WXXSrFnFdP+/wceUNjshEmGHd2qi1gqhDntK0LoreAcpdGpoOt4rSrXtkVMbAW7iHESscq+u1MI0t0Y6iP3bDXrSYJYGv12i7Xj/JwyL1gqAy97qK4pVVwdPKmy4bxON4gxFTBerwFZcJGvObyeGJCuJP0LWEoVRdswIzGqLfB3Lq89dLZ1sBme1Ljw2tkdl6nXgX23ZACCRDq21+eaZAPQJumvgIksBf//vB+4ZMI4xJTvX/LxJvZObeJfriCJHqalIShnk9sj8D4RMHS4FSlxrqs6Q+1QJe5oZaFLY+XXoquSHnzkHVVxxECIHwaytnuVCVf1QopSX+uzWf8uTJ79PVst0+BtECdv8GTWs8gGIGBruJtdxxMSOMpz8wFYYCth0aui/tsSC2TVm9Qxz1gGO+Xdg7UZ1k8Id3EVFiAITuahXIYM8j6WeSMuCwHuzBKvpw10CVrrBzUjSGQBY73Ykx4gp1gh8RBfIll0TIeQEWNlxiV2wC8qrJ4Uwf/pTZk4gGYnyvAJ5/3qJsf5sN1UVD4h5Ury8LhN0B8k8IJPaZD4c032Ux7xbRm+7JZCPSqRFe+KQ2RkAs6nQ9N5CC2awBI1noEvP5s9Bi2xlafvN7CaAwQ/HbDSZ33fy1kgwfUlBBuro7kTZghM1BnE2mFqlfxwvo7rQJM2xibS28CRXEiQJ13zUwRq6fE/69smgKpDtZ2/QXgC5yBNt+LzKkcGgjgO+X0mw3L0OdC3mCEuzSUbi34HVZh4XBksfbecxU5znYkwZGFkqUy3g9QQxJ7QoYTC3u2dVyzKQkvHN+MTVXXpCO8i4pMsz0bqYUFuxRx4/17TPF/RSGl/SiOZefS8KhCW+I+2wK29NTbhkNlGojbIttVG7uU7VCQNPAE9uZNyN7is7XsTa4WBZKZmq+eMYHkUYAkbp4j3OBUitkIrhmwOGo1Y9g/rnPWtuUt7prLld1890z6a2dMWzGHw0V+47ZaBhdC01Ag7MLxLG2ftJlB2Fz2+5YGpbam4zpru5hrRbux6zutguofUNfOor9xDME0wMTANBglghkgBZQMEAgEFAAQgc21afURuIZ0GRx4QMFLSQlIBMIPm3a4P189NQqR7FNUEFCmlFXw+R1qLlrlrqH8x4XoPEincAgInEA==' | base64 -d > app/flamme.jks
+          python3 tools/make_icons.py .
 
       - name: APK bauen
         working-directory: flamme
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set +e
           gradle assembleRelease --no-daemon --console=plain > ../build.log 2>&1
