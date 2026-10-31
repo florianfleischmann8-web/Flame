@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,8 +22,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK Lizenzen (SDK ist auf dem Runner vorinstalliert)
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Android SDK vorbereiten (Lizenzen + Pakete)
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          mkdir -p "$ANDROID_HOME/licenses"
+          printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-license"
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKM" ]; then
+            yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+            "$SDKM" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" || true
 
       - name: Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
@@ -1495,7 +1505,25 @@ jobs:
 
       - name: APK bauen
         working-directory: flamme
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle assembleRelease --no-daemon --console=plain > ../build.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            msg=$(grep -E "^e: |error:|What went wrong|Execution failed|AAPT|Could not|licen|Failed to" -A2 ../build.log | head -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Gradle-Fehler::${msg}"
+            echo "=========== LETZTE LOG-ZEILEN ==========="
+            tail -n 60 ../build.log
+          fi
+          exit $rc
+
+      - name: Build-Log hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
 
       - name: APK umbenennen
         run: |
