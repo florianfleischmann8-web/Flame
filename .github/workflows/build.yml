@@ -1,0 +1,1509 @@
+# Flamme SMP – baut automatisch eine APK (Android-App, Liquid-Glass-Design)
+# Nutzung: Diese Datei als  .github/workflows/build.yml  ins GitHub-Repository legen.
+# Danach: Actions → "Flamme SMP APK" → Run workflow  (oder einfach pushen).
+# Die fertige APK liegt danach unter "Artifacts" → FlammeSMP-APK.
+name: Flamme SMP APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Projekt erzeugen (kompletter App-Code)
+        run: |
+          set -e
+          mkdir -p flamme && cd flamme
+          cat > settings.gradle.kts <<'FLAMME_EOF_1'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "FlammeSMP"
+          include(":app")
+          FLAMME_EOF_1
+          cat > build.gradle.kts <<'FLAMME_EOF_2'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          FLAMME_EOF_2
+          cat > gradle.properties <<'FLAMME_EOF_3'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          FLAMME_EOF_3
+          mkdir -p app
+          cat > app/build.gradle.kts <<'FLAMME_EOF_4'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "de.flamme.smp"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "de.flamme.smp"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              signingConfigs {
+                  create("flamme") {
+                      storeFile = file("flamme.jks")
+                      storePassword = "flamme2026"
+                      keyAlias = "flamme"
+                      keyPassword = "flamme2026"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("flamme")
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+              buildFeatures {
+                  compose = true
+              }
+              composeOptions {
+                  kotlinCompilerExtensionVersion = "1.5.14"
+              }
+              lint {
+                  abortOnError = false
+                  checkReleaseBuilds = false
+              }
+              packaging {
+                  resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+              }
+          }
+
+          dependencies {
+              implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.activity:activity-compose:1.9.0")
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.foundation:foundation")
+              implementation("androidx.compose.animation:animation")
+          }
+          FLAMME_EOF_4
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'FLAMME_EOF_5'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+              <application
+                  android:allowBackup="false"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="Flamme SMP"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.Flamme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".ProxyService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="lan_proxy" />
+                  </service>
+              </application>
+          </manifest>
+          FLAMME_EOF_5
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/styles.xml <<'FLAMME_EOF_6'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.Flamme" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:windowBackground">@color/bg</item>
+                  <item name="android:statusBarColor">@android:color/transparent</item>
+                  <item name="android:navigationBarColor">@android:color/transparent</item>
+              </style>
+          </resources>
+          FLAMME_EOF_6
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/colors.xml <<'FLAMME_EOF_7'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="bg">#0B0510</color>
+          </resources>
+          FLAMME_EOF_7
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'FLAMME_EOF_8'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:aapt="http://schemas.android.com/aapt"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:pathData="M54,30.08 C58.8,42.56 69.2,49.84 66.8,63.36 C65.2,73.76 58.8,77.92 54,77.92 C47.6,77.92 40.4,72.72 41.2,61.28 C41.6,54 45.2,49.84 48.4,44.64 C49.2,49.84 50.8,51.92 52.4,51.92 C51.6,43.6 51.6,36.32 54,30.08 Z">
+                  <aapt:attr name="android:fillColor">
+                      <gradient
+                          android:endX="54"
+                          android:endY="78"
+                          android:startX="54"
+                          android:startY="30"
+                          android:type="linear">
+                          <item android:color="#FFFFC145" android:offset="0" />
+                          <item android:color="#FFFF7A18" android:offset="0.5" />
+                          <item android:color="#FFFF3D00" android:offset="1" />
+                      </gradient>
+                  </aapt:attr>
+              </path>
+              <group
+                  android:pivotX="54"
+                  android:pivotY="76"
+                  android:scaleX="0.5"
+                  android:scaleY="0.52">
+                  <path
+                      android:fillColor="#FFFFF4D6"
+                      android:pathData="M54,30.08 C58.8,42.56 69.2,49.84 66.8,63.36 C65.2,73.76 58.8,77.92 54,77.92 C47.6,77.92 40.4,72.72 41.2,61.28 C41.6,54 45.2,49.84 48.4,44.64 C49.2,49.84 50.8,51.92 52.4,51.92 C51.6,43.6 51.6,36.32 54,30.08 Z" />
+              </group>
+          </vector>
+          FLAMME_EOF_8
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'FLAMME_EOF_9'
+          <?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item>
+                  <shape android:shape="rectangle">
+                      <gradient
+                          android:angle="270"
+                          android:endColor="#FF0B0510"
+                          android:startColor="#FF3A1245" />
+                  </shape>
+              </item>
+              <item
+                  android:bottom="6dp"
+                  android:left="6dp"
+                  android:right="6dp"
+                  android:top="6dp">
+                  <shape android:shape="oval">
+                      <gradient
+                          android:centerX="0.5"
+                          android:centerY="0.55"
+                          android:endColor="#00FF5A1F"
+                          android:gradientRadius="50%p"
+                          android:startColor="#99FF5A1F"
+                          android:type="radial" />
+                  </shape>
+              </item>
+          </layer-list>
+          FLAMME_EOF_9
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_notif.xml <<'FLAMME_EOF_10'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="20dp"
+              android:height="26dp"
+              android:viewportWidth="40"
+              android:viewportHeight="52">
+              <group
+                  android:translateX="-34"
+                  android:translateY="-28">
+                  <path
+                      android:fillColor="#FFFFFFFF"
+                      android:pathData="M54,30.08 C58.8,42.56 69.2,49.84 66.8,63.36 C65.2,73.76 58.8,77.92 54,77.92 C47.6,77.92 40.4,72.72 41.2,61.28 C41.6,54 45.2,49.84 48.4,44.64 C49.2,49.84 50.8,51.92 52.4,51.92 C51.6,43.6 51.6,36.32 54,30.08 Z" />
+              </group>
+          </vector>
+          FLAMME_EOF_10
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'FLAMME_EOF_11'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          FLAMME_EOF_11
+          mkdir -p app/src/main/java/de/flamme/smp
+          cat > app/src/main/java/de/flamme/smp/Core.kt <<'FLAMME_EOF_12'
+          package de.flamme.smp
+
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.net.wifi.WifiManager
+          import android.os.Build
+          import android.os.IBinder
+          import android.os.PowerManager
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateListOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.setValue
+          import androidx.core.app.NotificationCompat
+          import androidx.core.app.ServiceCompat
+          import androidx.core.content.ContextCompat
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.net.BindException
+          import java.net.DatagramPacket
+          import java.net.DatagramSocket
+          import java.net.Inet4Address
+          import java.net.InetAddress
+          import java.net.InetSocketAddress
+          import java.net.NetworkInterface
+          import java.net.SocketAddress
+          import java.net.SocketTimeoutException
+          import java.net.UnknownHostException
+          import java.nio.ByteBuffer
+          import java.util.concurrent.ConcurrentHashMap
+          import java.util.concurrent.Executors
+          import java.util.concurrent.atomic.AtomicLong
+          import kotlin.random.Random
+
+          // ---------------------------------------------------------------- Daten
+
+          data class Srv(val id: String, val name: String, val host: String, val port: Int, val fav: Boolean = false)
+
+          object Store {
+              val servers = mutableStateListOf<Srv>()
+              var turbo by mutableStateOf(true)
+              var selected by mutableStateOf<String?>(null)
+
+              fun load(c: Context) {
+                  val sp = c.getSharedPreferences("flamme", Context.MODE_PRIVATE)
+                  servers.clear()
+                  try {
+                      val a = JSONArray(sp.getString("servers", "[]"))
+                      for (i in 0 until a.length()) {
+                          val o = a.getJSONObject(i)
+                          servers.add(Srv(o.getString("id"), o.getString("name"), o.getString("host"), o.getInt("port"), o.optBoolean("fav")))
+                      }
+                  } catch (e: Exception) {
+                  }
+                  turbo = sp.getBoolean("turbo", true)
+                  selected = sp.getString("sel", null)
+              }
+
+              fun save(c: Context) {
+                  val a = JSONArray()
+                  for (s in servers) {
+                      a.put(JSONObject().put("id", s.id).put("name", s.name).put("host", s.host).put("port", s.port).put("fav", s.fav))
+                  }
+                  c.getSharedPreferences("flamme", Context.MODE_PRIVATE).edit()
+                      .putString("servers", a.toString())
+                      .putBoolean("turbo", turbo)
+                      .putString("sel", selected)
+                      .apply()
+              }
+
+              fun upsert(c: Context, s: Srv) {
+                  val i = servers.indexOfFirst { it.id == s.id }
+                  if (i >= 0) servers[i] = s else servers.add(s)
+                  if (selected == null) selected = s.id
+                  save(c)
+              }
+
+              fun remove(c: Context, id: String) {
+                  servers.removeAll { it.id == id }
+                  if (selected == id) selected = servers.firstOrNull()?.id
+                  save(c)
+              }
+          }
+
+          object Live {
+              @Volatile
+              var owner: Any? = null
+              var running by mutableStateOf(false)
+              var status by mutableStateOf("Bereit")
+              var pingMs by mutableStateOf(-1)
+              var players by mutableStateOf("–")
+              var version by mutableStateOf("–")
+              var motd by mutableStateOf("")
+              var upBytes by mutableStateOf(0L)
+              var downBytes by mutableStateOf(0L)
+              var sessions by mutableStateOf(0)
+              var error by mutableStateOf<String?>(null)
+          }
+
+          object Net {
+              fun localIp(): String {
+                  try {
+                      val list = NetworkInterface.getNetworkInterfaces().toList()
+                      for (n in list) {
+                          if (!n.isUp || n.isLoopback) continue
+                          for (a in n.inetAddresses.toList()) {
+                              if (a is Inet4Address && a.isSiteLocalAddress) return a.hostAddress ?: "–"
+                          }
+                      }
+                  } catch (e: Exception) {
+                  }
+                  return "–"
+              }
+          }
+
+          fun fmtBytes(b: Long): String = when {
+              b < 1024L -> "$b B"
+              b < 1048576L -> String.format("%.1f KB", b / 1024.0)
+              else -> String.format("%.1f MB", b / 1048576.0)
+          }
+
+          // ---------------------------------------------------------------- Engine
+          // Antwortet auf LAN-Suchanfragen (RakNet Unconnected Ping, UDP 19132) und
+          // leitet danach alle Pakete 1:1 an den echten Server weiter.
+          // Die Server-Antwort (Version/Protokoll) wird original durchgereicht,
+          // dadurch passt sich die Brücke automatisch an jede Bedrock-Version an.
+
+          class Engine(private val ctx: Context, private val s: Srv, private val turbo: Boolean) {
+              @Volatile
+              private var alive = true
+              var onEnd: (() -> Unit)? = null
+
+              private class Sess(val sock: DatagramSocket) {
+                  @Volatile
+                  var last = System.currentTimeMillis()
+              }
+
+              private var main: DatagramSocket? = null
+              private var up: InetSocketAddress? = null
+              private val sessions = ConcurrentHashMap<String, Sess>()
+              private val pool = Executors.newCachedThreadPool()
+              private val upB = AtomicLong()
+              private val downB = AtomicLong()
+              @Volatile
+              private var lastPong: ByteArray? = null
+              private val guid = Random.nextLong()
+              private val magic = byteArrayOf(0, -1, -1, 0, -2, -2, -2, -2, -3, -3, -3, -3, 0x12, 0x34, 0x56, 0x78)
+
+              private var mc: WifiManager.MulticastLock? = null
+              private var wl: WifiManager.WifiLock? = null
+              private var wk: PowerManager.WakeLock? = null
+
+              private fun mine() = Live.owner === this
+
+              private fun spawn(name: String, block: () -> Unit) {
+                  val t = Thread {
+                      if (turbo) {
+                          try {
+                              android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                          } catch (e: Exception) {
+                          }
+                      }
+                      block()
+                  }
+                  t.name = name
+                  t.isDaemon = true
+                  t.start()
+              }
+
+              fun start() {
+                  Live.owner = this
+                  Live.error = null
+                  Live.upBytes = 0L
+                  Live.downBytes = 0L
+                  Live.sessions = 0
+                  Live.pingMs = -1
+                  Live.players = "–"
+                  Live.version = "–"
+                  Live.status = "Starte…"
+                  spawn("flamme-main") { runMain() }
+              }
+
+              fun stop() {
+                  alive = false
+                  try {
+                      main?.close()
+                  } catch (e: Exception) {
+                  }
+                  for (x in sessions.values) {
+                      try {
+                          x.sock.close()
+                      } catch (e: Exception) {
+                      }
+                  }
+              }
+
+              private fun friendly(e: Exception): String = when (e) {
+                  is UnknownHostException -> "Server-Adresse nicht gefunden. Prüfe IP/Domain und Internet."
+                  is BindException -> "Port 19132 ist belegt. Schließe andere LAN-Apps und starte neu."
+                  else -> "Fehler: " + (e.message ?: e.javaClass.simpleName)
+              }
+
+              private fun acquireLocks() {
+                  try {
+                      val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                      val m = wm.createMulticastLock("flamme:mc")
+                      m.setReferenceCounted(false)
+                      m.acquire()
+                      mc = m
+                      if (turbo) {
+                          val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                          val w = wm.createWifiLock(mode, "flamme:wl")
+                          w.setReferenceCounted(false)
+                          w.acquire()
+                          wl = w
+                      }
+                      val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+                      val k = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "flamme:cpu")
+                      k.setReferenceCounted(false)
+                      k.acquire()
+                      wk = k
+                  } catch (e: Exception) {
+                  }
+              }
+
+              private fun releaseLocks() {
+                  try {
+                      mc?.release()
+                  } catch (e: Exception) {
+                  }
+                  try {
+                      wl?.release()
+                  } catch (e: Exception) {
+                  }
+                  try {
+                      wk?.release()
+                  } catch (e: Exception) {
+                  }
+              }
+
+              private fun runMain() {
+                  try {
+                      val target = InetSocketAddress(InetAddress.getByName(s.host), s.port)
+                      up = target
+                      acquireLocks()
+                      val m = DatagramSocket(null)
+                      m.reuseAddress = true
+                      m.broadcast = true
+                      if (turbo) {
+                          try {
+                              m.receiveBufferSize = 1 shl 20
+                              m.sendBufferSize = 1 shl 20
+                              m.trafficClass = 0x10
+                          } catch (e: Exception) {
+                          }
+                      }
+                      m.bind(InetSocketAddress(19132))
+                      main = m
+                      if (!alive) return
+                      Live.running = true
+                      Live.status = "Aktiv · wartet auf Konsole"
+                      spawn("flamme-stats") { statLoop() }
+                      val buf = ByteArray(4096)
+                      while (alive) {
+                          val p = DatagramPacket(buf, buf.size)
+                          m.receive(p)
+                          val len = p.length
+                          if (len <= 0) continue
+                          val from = p.socketAddress
+                          val key = from.toString()
+                          val ss = sessions[key]
+                          if (ss != null) {
+                              ss.last = System.currentTimeMillis()
+                              ss.sock.send(DatagramPacket(buf, len, target))
+                              upB.addAndGet(len.toLong())
+                          } else {
+                              val id = buf[0].toInt() and 0xff
+                              val data = buf.copyOf(len)
+                              if (id == 0x01 || id == 0x02) {
+                                  pool.execute { handlePing(data, from) }
+                              } else {
+                                  openSession(key, from, data, target)
+                              }
+                          }
+                      }
+                  } catch (e: Exception) {
+                      if (alive && mine()) Live.error = friendly(e)
+                  } finally {
+                      cleanup()
+                  }
+              }
+
+              private fun cleanup() {
+                  alive = false
+                  stop()
+                  releaseLocks()
+                  try {
+                      pool.shutdownNow()
+                  } catch (e: Exception) {
+                  }
+                  if (mine()) {
+                      Live.running = false
+                      Live.status = if (Live.error == null) "Gestoppt" else "Fehler"
+                      Live.pingMs = -1
+                      Live.sessions = 0
+                  }
+                  onEnd?.invoke()
+              }
+
+              private fun openSession(key: String, from: SocketAddress, first: ByteArray, target: InetSocketAddress) {
+                  val sock = DatagramSocket()
+                  sock.soTimeout = 1000
+                  if (turbo) {
+                      try {
+                          sock.trafficClass = 0x10
+                          sock.receiveBufferSize = 1 shl 19
+                          sock.sendBufferSize = 1 shl 19
+                      } catch (e: Exception) {
+                      }
+                  }
+                  val ss = Sess(sock)
+                  sessions[key] = ss
+                  sock.send(DatagramPacket(first, first.size, target))
+                  upB.addAndGet(first.size.toLong())
+                  spawn("flamme-sess") {
+                      val b = ByteArray(4096)
+                      try {
+                          while (alive && System.currentTimeMillis() - ss.last < 30000L) {
+                              try {
+                                  val q = DatagramPacket(b, b.size)
+                                  sock.receive(q)
+                                  main?.send(DatagramPacket(b, q.length, from))
+                                  downB.addAndGet(q.length.toLong())
+                                  ss.last = System.currentTimeMillis()
+                              } catch (e: SocketTimeoutException) {
+                              }
+                          }
+                      } catch (e: Exception) {
+                      }
+                      try {
+                          sock.close()
+                      } catch (e: Exception) {
+                      }
+                      sessions.remove(key)
+                  }
+              }
+
+              private fun handlePing(data: ByteArray, from: SocketAddress) {
+                  var out: ByteArray? = null
+                  val s2 = DatagramSocket()
+                  try {
+                      s2.soTimeout = 1500
+                      s2.send(DatagramPacket(data, data.size, up))
+                      val b = ByteArray(2048)
+                      val q = DatagramPacket(b, b.size)
+                      s2.receive(q)
+                      val raw = b.copyOf(q.length)
+                      if ((raw[0].toInt() and 0xff) == 0x1c) {
+                          lastPong = raw
+                          out = rewrite(raw, data)
+                      }
+                  } catch (e: Exception) {
+                  } finally {
+                      s2.close()
+                  }
+                  if (out == null) {
+                      val cached = lastPong
+                      if (cached != null) out = rewrite(cached, data)
+                  }
+                  val o = out
+                  if (o != null && alive) {
+                      try {
+                          main?.send(DatagramPacket(o, o.size, from))
+                      } catch (e: Exception) {
+                      }
+                  }
+              }
+
+              private fun fields(pong: ByteArray): MutableList<String>? {
+                  if (pong.size < 36 || (pong[0].toInt() and 0xff) != 0x1c) return null
+                  val len = ((pong[33].toInt() and 0xff) shl 8) or (pong[34].toInt() and 0xff)
+                  val end = minOf(35 + len, pong.size)
+                  return String(pong, 35, end - 35, Charsets.UTF_8).split(";").toMutableList()
+              }
+
+              private fun info(f: List<String>) {
+                  if (f.size > 5 && mine()) {
+                      Live.motd = f[1]
+                      Live.version = f[3]
+                      Live.players = f[4] + "/" + f[5]
+                  }
+              }
+
+              private fun rewrite(pong: ByteArray, ping: ByteArray?): ByteArray {
+                  val f = fields(pong) ?: return pong
+                  info(f)
+                  if (f.size < 8) return pong
+                  f[1] = s.name
+                  f[7] = s.name
+                  if (f.size > 10) f[10] = "19132"
+                  if (f.size > 11) f[11] = "19132"
+                  val sb = f.joinToString(";").toByteArray(Charsets.UTF_8)
+                  val out = ByteArray(35 + sb.size)
+                  System.arraycopy(pong, 0, out, 0, 33)
+                  out[33] = (sb.size shr 8).toByte()
+                  out[34] = sb.size.toByte()
+                  System.arraycopy(sb, 0, out, 35, sb.size)
+                  if (ping != null && ping.size >= 9) System.arraycopy(ping, 1, out, 1, 8)
+                  return out
+              }
+
+              private fun probe(): Int {
+                  val s2 = DatagramSocket()
+                  try {
+                      s2.soTimeout = 1500
+                      val bb = ByteBuffer.allocate(33)
+                      bb.put(0x01.toByte())
+                      bb.putLong(System.nanoTime())
+                      bb.put(magic)
+                      bb.putLong(guid)
+                      val t0 = System.nanoTime()
+                      s2.send(DatagramPacket(bb.array(), 33, up))
+                      val b = ByteArray(2048)
+                      val q = DatagramPacket(b, b.size)
+                      s2.receive(q)
+                      val ms = ((System.nanoTime() - t0) / 1000000L).toInt()
+                      val raw = b.copyOf(q.length)
+                      val f = fields(raw)
+                      if (f != null) {
+                          lastPong = raw
+                          info(f)
+                      }
+                      return ms
+                  } catch (e: Exception) {
+                      return -1
+                  } finally {
+                      s2.close()
+                  }
+              }
+
+              private fun statLoop() {
+                  var n = 0
+                  while (alive) {
+                      if (mine()) {
+                          Live.upBytes = upB.get()
+                          Live.downBytes = downB.get()
+                          Live.sessions = sessions.size
+                          Live.status = if (sessions.isNotEmpty()) "Verbunden · Konsole spielt" else "Aktiv · wartet auf Konsole"
+                      }
+                      if (n % 3 == 0) {
+                          try {
+                              pool.execute {
+                                  val ms = probe()
+                                  if (mine() && alive) Live.pingMs = ms
+                              }
+                          } catch (e: Exception) {
+                          }
+                      }
+                      n++
+                      try {
+                          Thread.sleep(1000)
+                      } catch (e: InterruptedException) {
+                      }
+                  }
+              }
+          }
+
+          // ---------------------------------------------------------------- Service
+
+          class ProxyService : Service() {
+              companion object {
+                  @Volatile
+                  var engine: Engine? = null
+
+                  fun start(c: Context, s: Srv, turbo: Boolean) {
+                      val i = Intent(c, ProxyService::class.java)
+                          .putExtra("n", s.name).putExtra("h", s.host).putExtra("p", s.port).putExtra("t", turbo)
+                      ContextCompat.startForegroundService(c, i)
+                  }
+
+                  fun stop(c: Context) {
+                      c.startService(Intent(c, ProxyService::class.java).setAction("STOP"))
+                  }
+              }
+
+              override fun onBind(i: Intent?): IBinder? = null
+
+              override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
+                  if (i == null || i.action == "STOP") {
+                      engine?.stop()
+                      engine = null
+                      stopForeground(STOP_FOREGROUND_REMOVE)
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  val name = i.getStringExtra("n") ?: "Server"
+                  val host = i.getStringExtra("h") ?: ""
+                  val port = i.getIntExtra("p", 19132)
+                  val turbo = i.getBooleanExtra("t", true)
+
+                  val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  nm.createNotificationChannel(NotificationChannel("flamme", "Flamme SMP", NotificationManager.IMPORTANCE_LOW))
+                  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                  val stopPi = PendingIntent.getService(this, 1, Intent(this, ProxyService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
+                  val n = NotificationCompat.Builder(this, "flamme")
+                      .setSmallIcon(R.drawable.ic_notif)
+                      .setContentTitle("Flamme SMP aktiv")
+                      .setContentText(name + " · " + host + ":" + port)
+                      .setContentIntent(open)
+                      .addAction(0, "Stoppen", stopPi)
+                      .setOngoing(true)
+                      .build()
+                  ServiceCompat.startForeground(this, 1, n, if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
+
+                  engine?.stop()
+                  val e = Engine(applicationContext, Srv("run", name, host, port), turbo)
+                  e.onEnd = {
+                      if (engine === e) {
+                          engine = null
+                          stopSelf()
+                      }
+                  }
+                  engine = e
+                  e.start()
+                  return START_NOT_STICKY
+              }
+
+              override fun onDestroy() {
+                  engine?.stop()
+                  engine = null
+                  super.onDestroy()
+              }
+          }
+          FLAMME_EOF_12
+          mkdir -p app/src/main/java/de/flamme/smp
+          cat > app/src/main/java/de/flamme/smp/MainActivity.kt <<'FLAMME_EOF_13'
+          package de.flamme.smp
+
+          import android.Manifest
+          import android.os.Build
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.BackHandler
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.animation.*
+          import androidx.compose.animation.core.*
+          import androidx.compose.foundation.*
+          import androidx.compose.foundation.interaction.*
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.*
+          import androidx.compose.foundation.shape.*
+          import androidx.compose.foundation.text.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.*
+          import androidx.compose.ui.draw.*
+          import androidx.compose.ui.geometry.*
+          import androidx.compose.ui.graphics.*
+          import androidx.compose.ui.graphics.drawscope.*
+          import androidx.compose.ui.hapticfeedback.*
+          import androidx.compose.ui.platform.*
+          import androidx.compose.ui.text.*
+          import androidx.compose.ui.text.font.*
+          import androidx.compose.ui.text.input.*
+          import androidx.compose.ui.text.style.*
+          import androidx.compose.ui.unit.*
+          import androidx.core.view.WindowCompat
+          import java.util.UUID
+
+          val Ember = Color(0xFFFF7A18)
+          val Fire = Color(0xFFFF3D00)
+          val Gold = Color(0xFFFFC145)
+          val Pink = Color(0xFFFF2E63)
+          val Violet = Color(0xFF7B2FF7)
+          val Mint = Color(0xFF4ADE80)
+          val Bg0 = Color(0xFF0B0510)
+          val Bg1 = Color(0xFF1B0B22)
+
+          class MainActivity : ComponentActivity() {
+              private val perm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  WindowCompat.setDecorFitsSystemWindows(window, false)
+                  window.statusBarColor = android.graphics.Color.TRANSPARENT
+                  window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                  WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
+                  Store.load(this)
+                  if (Build.VERSION.SDK_INT >= 33) perm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                  setContent { App() }
+              }
+          }
+
+          // ---------------------------------------------------------------- Bausteine
+
+          fun Modifier.glass(r: Dp = 28.dp, tint: Color = Color.White, a: Float = 0.10f): Modifier {
+              val shape = RoundedCornerShape(r)
+              return this
+                  .clip(shape)
+                  .background(Brush.verticalGradient(listOf(tint.copy(alpha = a + 0.07f), tint.copy(alpha = a * 0.45f))))
+                  .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.50f), Color.White.copy(alpha = 0.04f), Color.White.copy(alpha = 0.22f))), shape)
+          }
+
+          @Composable
+          fun Modifier.bounce(onClick: () -> Unit): Modifier {
+              val src = remember { MutableInteractionSource() }
+              val pressed by src.collectIsPressedAsState()
+              val sc by animateFloatAsState(if (pressed) 0.93f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "bounce")
+              return this.scale(sc).clickable(interactionSource = src, indication = null, onClick = onClick)
+          }
+
+          @Composable
+          fun Modifier.appear(delayMs: Int = 0): Modifier {
+              var go by remember { mutableStateOf(false) }
+              LaunchedEffect(Unit) { go = true }
+              val p by animateFloatAsState(if (go) 1f else 0f, tween(600, delayMs, FastOutSlowInEasing), label = "appear")
+              return this.graphicsLayer {
+                  alpha = p
+                  translationY = (1f - p) * 70f
+              }
+          }
+
+          @Composable
+          fun Txt(
+              s: String,
+              size: Int = 14,
+              color: Color = Color.White,
+              w: FontWeight = FontWeight.Normal,
+              mod: Modifier = Modifier,
+              ls: Float = 0f,
+              align: TextAlign = TextAlign.Unspecified,
+              lines: Int = Int.MAX_VALUE
+          ) {
+              BasicText(
+                  s, mod,
+                  style = TextStyle(color = color, fontSize = size.sp, fontWeight = w, letterSpacing = ls.sp, textAlign = align),
+                  maxLines = lines, overflow = TextOverflow.Ellipsis
+              )
+          }
+
+          @Composable
+          fun Gap(h: Int) = Spacer(Modifier.height(h.dp))
+
+          @Composable
+          fun GapW(w: Int) = Spacer(Modifier.width(w.dp))
+
+          @Composable
+          fun FlameLogo(mod: Modifier = Modifier.fillMaxSize()) {
+              Canvas(mod) {
+                  val w = size.width
+                  val h = size.height
+                  val p = Path().apply {
+                      moveTo(w * 0.5f, h * 0.04f)
+                      cubicTo(w * 0.62f, h * 0.28f, w * 0.88f, h * 0.42f, w * 0.82f, h * 0.68f)
+                      cubicTo(w * 0.78f, h * 0.88f, w * 0.62f, h * 0.96f, w * 0.5f, h * 0.96f)
+                      cubicTo(w * 0.34f, h * 0.96f, w * 0.16f, h * 0.86f, w * 0.18f, h * 0.64f)
+                      cubicTo(w * 0.19f, h * 0.50f, w * 0.28f, h * 0.42f, w * 0.36f, h * 0.32f)
+                      cubicTo(w * 0.38f, h * 0.42f, w * 0.42f, h * 0.46f, w * 0.46f, h * 0.46f)
+                      cubicTo(w * 0.44f, h * 0.30f, w * 0.44f, h * 0.16f, w * 0.5f, h * 0.04f)
+                      close()
+                  }
+                  drawPath(p, Brush.verticalGradient(listOf(Gold, Ember, Fire), startY = 0f, endY = h))
+                  withTransform({ scale(0.5f, 0.52f, Offset(w * 0.5f, h * 0.95f)) }) {
+                      drawPath(p, Brush.verticalGradient(listOf(Color.White, Gold), startY = 0f, endY = h), alpha = 0.92f)
+                  }
+              }
+          }
+
+          @Composable
+          fun Aurora() {
+              val t = rememberInfiniteTransition(label = "aurora")
+              val a = t.animateFloat(0f, 1f, infiniteRepeatable(tween(15000, easing = LinearEasing), RepeatMode.Reverse), label = "a")
+              val b = t.animateFloat(0f, 1f, infiniteRepeatable(tween(21000, easing = LinearEasing), RepeatMode.Reverse), label = "b")
+              val c = t.animateFloat(0f, 1f, infiniteRepeatable(tween(17000, easing = LinearEasing), RepeatMode.Reverse), label = "c")
+              Canvas(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Bg1, Bg0)))) {
+                  val w = size.width
+                  val h = size.height
+                  val r = w * 1.0f
+                  var ctr = Offset(w * (0.10f + 0.70f * a.value), h * (0.12f + 0.15f * b.value))
+                  drawRect(Brush.radialGradient(listOf(Fire.copy(alpha = 0.50f), Color.Transparent), center = ctr, radius = r))
+                  ctr = Offset(w * (0.95f - 0.70f * b.value), h * (0.55f + 0.20f * c.value))
+                  drawRect(Brush.radialGradient(listOf(Violet.copy(alpha = 0.40f), Color.Transparent), center = ctr, radius = r))
+                  ctr = Offset(w * (0.20f + 0.55f * c.value), h * (0.95f - 0.20f * a.value))
+                  drawRect(Brush.radialGradient(listOf(Ember.copy(alpha = 0.38f), Color.Transparent), center = ctr, radius = r))
+              }
+          }
+
+          // ---------------------------------------------------------------- App
+
+          @Composable
+          fun App() {
+              var tab by remember { mutableIntStateOf(0) }
+              var open by remember { mutableStateOf(false) }
+              var edit by remember { mutableStateOf<Srv?>(null) }
+              var key by remember { mutableIntStateOf(0) }
+              BackHandler(open) { open = false }
+              Box(Modifier.fillMaxSize()) {
+                  Aurora()
+                  Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                      Header()
+                      Box(Modifier.weight(1f).fillMaxWidth()) {
+                          AnimatedContent(
+                              tab,
+                              transitionSpec = {
+                                  val d = if (targetState > initialState) 1 else -1
+                                  (slideInHorizontally(tween(450, easing = FastOutSlowInEasing)) { it / 5 * d } + fadeIn(tween(450))) togetherWith
+                                      (slideOutHorizontally(tween(300)) { -it / 5 * d } + fadeOut(tween(250)))
+                              },
+                              label = "tab"
+                          ) { t ->
+                              when (t) {
+                                  0 -> Home()
+                                  1 -> Servers { s -> edit = s; key++; open = true }
+                                  else -> Info()
+                              }
+                          }
+                      }
+                      NavBar(tab) { tab = it }
+                  }
+                  Sheet(open, edit, key) { open = false }
+              }
+          }
+
+          @Composable
+          fun Header() {
+              val inf = rememberInfiniteTransition(label = "hdr")
+              val br = inf.animateFloat(0.92f, 1.07f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "br")
+              val dot by animateColorAsState(if (Live.running) Mint else Color.White.copy(alpha = 0.35f), tween(500), label = "dot")
+              Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                  Box(Modifier.size(46.dp).graphicsLayer { scaleX = br.value; scaleY = br.value }) { FlameLogo() }
+                  GapW(12)
+                  Column(Modifier.weight(1f)) {
+                      BasicText(
+                          "FLAMME SMP",
+                          style = TextStyle(brush = Brush.linearGradient(listOf(Gold, Ember, Pink)), fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                      )
+                      Txt("LAN-Brücke für Minecraft Bedrock", 12, Color.White.copy(alpha = 0.55f))
+                  }
+                  Row(Modifier.glass(20.dp).padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                      Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                      GapW(6)
+                      Txt(if (Live.running) "LIVE" else "AUS", 11, Color.White, FontWeight.Bold, ls = 1.5f)
+                  }
+              }
+          }
+
+          @Composable
+          fun NavBar(tab: Int, on: (Int) -> Unit) {
+              val items = listOf("🔥" to "Start", "★" to "Server", "ⓘ" to "Info")
+              BoxWithConstraints(
+                  Modifier.navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth().height(66.dp).glass(33.dp)
+              ) {
+                  val w = maxWidth / 3
+                  val x by animateDpAsState(w * tab, spring(dampingRatio = 0.72f, stiffness = 380f), label = "navx")
+                  Box(
+                      Modifier.offset(x = x).width(w).fillMaxHeight().padding(6.dp)
+                          .clip(RoundedCornerShape(27.dp))
+                          .background(Brush.linearGradient(listOf(Fire.copy(alpha = 0.60f), Ember.copy(alpha = 0.35f))))
+                          .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(27.dp))
+                  )
+                  Row(Modifier.fillMaxSize()) {
+                      items.forEachIndexed { i, (ic, lb) ->
+                          Column(
+                              Modifier.weight(1f).fillMaxHeight().bounce { on(i) },
+                              horizontalAlignment = Alignment.CenterHorizontally,
+                              verticalArrangement = Arrangement.Center
+                          ) {
+                              Txt(ic, 18, Color.White)
+                              Txt(lb, 11, if (tab == i) Color.White else Color.White.copy(alpha = 0.55f), FontWeight.SemiBold)
+                          }
+                      }
+                  }
+              }
+          }
+
+          // ---------------------------------------------------------------- Start
+
+          @Composable
+          fun Orb(running: Boolean, onClick: () -> Unit) {
+              val inf = rememberInfiniteTransition(label = "orb")
+              val spin = inf.animateFloat(0f, 360f, infiniteRepeatable(tween(3200, easing = LinearEasing)), label = "spin")
+              val pulse = inf.animateFloat(0.92f, 1.08f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
+              val on by animateFloatAsState(if (running) 1f else 0f, tween(700), label = "on")
+              Box(Modifier.bounce(onClick).size(240.dp), contentAlignment = Alignment.Center) {
+                  Canvas(Modifier.fillMaxSize()) {
+                      val c = center
+                      val r = size.minDimension / 2f
+                      val g = pulse.value
+                      drawCircle(
+                          Brush.radialGradient(listOf(Ember.copy(alpha = 0.10f + 0.40f * on), Color.Transparent), center = c, radius = r * g),
+                          radius = r * g, center = c
+                      )
+                      rotate(spin.value, c) {
+                          drawCircle(
+                              Brush.sweepGradient(listOf(Color.Transparent, Fire, Gold, Color.Transparent), center = c),
+                              radius = r * 0.80f, center = c, alpha = 0.25f + 0.75f * on,
+                              style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round)
+                          )
+                      }
+                      drawCircle(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.04f))), radius = r * 0.66f, center = c)
+                      drawCircle(
+                          Brush.linearGradient(listOf(Color.White.copy(alpha = 0.6f), Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.25f))),
+                          radius = r * 0.66f, center = c, style = Stroke(1.5.dp.toPx())
+                      )
+                  }
+                  Box(
+                      Modifier.size(96.dp).graphicsLayer {
+                          val k = 1f + (pulse.value - 1f) * 0.6f * on
+                          scaleX = k
+                          scaleY = k
+                          alpha = 0.55f + 0.45f * on
+                      }
+                  ) { FlameLogo() }
+              }
+          }
+
+          @Composable
+          fun Tile(mod: Modifier, label: String, value: String, accent: Color) {
+              Column(mod.glass(22.dp).padding(16.dp)) {
+                  Txt(label, 11, Color.White.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
+                  Gap(6)
+                  AnimatedContent(
+                      value,
+                      transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { -it / 2 } + fadeOut()) },
+                      label = "tile"
+                  ) { v -> Txt(v, 21, accent, FontWeight.Black, lines = 1) }
+              }
+          }
+
+          @Composable
+          fun Chip(label: String, fav: Boolean, selected: Boolean, onClick: () -> Unit) {
+              val bg by animateColorAsState(if (selected) Ember.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f), tween(300), label = "chip")
+              Row(
+                  Modifier.bounce(onClick).clip(RoundedCornerShape(50)).background(bg)
+                      .border(1.dp, Color.White.copy(alpha = if (selected) 0.5f else 0.15f), RoundedCornerShape(50))
+                      .padding(horizontal = 16.dp, vertical = 10.dp),
+                  verticalAlignment = Alignment.CenterVertically
+              ) {
+                  if (fav) {
+                      Txt("★", 13, Gold)
+                      GapW(6)
+                  }
+                  Txt(label, 14, Color.White, FontWeight.SemiBold)
+              }
+          }
+
+          @Composable
+          fun GSwitch(on: Boolean, set: (Boolean) -> Unit) {
+              val x by animateDpAsState(if (on) 24.dp else 0.dp, spring(dampingRatio = 0.6f, stiffness = 500f), label = "sx")
+              val bg by animateColorAsState(if (on) Ember else Color.White.copy(alpha = 0.18f), tween(300), label = "sbg")
+              Box(Modifier.bounce { set(!on) }.width(56.dp).height(32.dp).clip(CircleShape).background(bg).padding(3.dp)) {
+                  Box(Modifier.offset(x = x).size(26.dp).clip(CircleShape).background(Color.White))
+              }
+          }
+
+          @Composable
+          fun Home() {
+              val ctx = LocalContext.current
+              val hf = LocalHapticFeedback.current
+              val sel = Store.servers.firstOrNull { it.id == Store.selected }
+
+              fun restart() {
+                  if (Live.running) {
+                      val s = Store.servers.firstOrNull { it.id == Store.selected }
+                      if (s != null) ProxyService.start(ctx, s, Store.turbo)
+                  }
+              }
+
+              val pingTxt = if (!Live.running) "–" else if (Live.pingMs < 0) "offline" else Live.pingMs.toString() + " ms"
+              val pingCol = when {
+                  !Live.running -> Color.White.copy(alpha = 0.5f)
+                  Live.pingMs < 0 -> Pink
+                  Live.pingMs < 60 -> Mint
+                  Live.pingMs < 120 -> Gold
+                  else -> Fire
+              }
+
+              Column(
+                  Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                  Gap(6)
+                  Box(Modifier.appear(0)) {
+                      Orb(Live.running) {
+                          hf.performHapticFeedback(HapticFeedbackType.LongPress)
+                          if (Live.running) {
+                              ProxyService.stop(ctx)
+                          } else if (sel != null) {
+                              Live.error = null
+                              Live.status = "Starte…"
+                              ProxyService.start(ctx, sel, Store.turbo)
+                          } else {
+                              Live.error = "Füge zuerst im Tab „Server“ einen Server hinzu."
+                          }
+                      }
+                  }
+                  AnimatedContent(
+                      Live.status,
+                      transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) },
+                      label = "status"
+                  ) { st -> Txt(st, 17, Color.White, FontWeight.Bold, align = TextAlign.Center) }
+                  Gap(4)
+                  Txt(
+                      if (Live.running) "Antippen zum Stoppen" else "Antippen zum Starten",
+                      12, Color.White.copy(alpha = 0.5f)
+                  )
+                  Gap(16)
+                  Row(
+                      Modifier.appear(100).fillMaxWidth().horizontalScroll(rememberScrollState()),
+                      horizontalArrangement = Arrangement.spacedBy(10.dp)
+                  ) {
+                      for (s in Store.servers.sortedByDescending { it.fav }) {
+                          Chip(s.name, s.fav, s.id == Store.selected) {
+                              Store.selected = s.id
+                              Store.save(ctx)
+                              restart()
+                          }
+                      }
+                      if (Store.servers.isEmpty()) Txt("Noch kein Server – öffne den Tab „Server“", 13, Color.White.copy(alpha = 0.6f))
+                  }
+                  Gap(16)
+                  Row(Modifier.appear(180).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                      Tile(Modifier.weight(1f), "PING", pingTxt, pingCol)
+                      Tile(Modifier.weight(1f), "SPIELER", if (Live.running) Live.players else "–", Color.White)
+                  }
+                  Gap(12)
+                  Row(Modifier.appear(260).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                      Tile(Modifier.weight(1f), "VERSION", if (Live.running) Live.version else "–", Gold)
+                      Tile(Modifier.weight(1f), "DATEN", fmtBytes(Live.upBytes + Live.downBytes), Ember)
+                  }
+                  Gap(12)
+                  Row(Modifier.appear(340).fillMaxWidth().glass().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                      Column(Modifier.weight(1f)) {
+                          Txt("⚡ Turbo-Modus", 17, Color.White, FontWeight.Bold)
+                          Gap(4)
+                          Txt("Low-Latency-WLAN, priorisierte Pakete und große Puffer – weniger Jitter und Ruckler im lokalen Netz.", 12, Color.White.copy(alpha = 0.6f))
+                      }
+                      GapW(14)
+                      GSwitch(Store.turbo) {
+                          Store.turbo = it
+                          Store.save(ctx)
+                          restart()
+                      }
+                  }
+                  AnimatedVisibility(
+                      Live.running,
+                      enter = fadeIn(tween(500)) + expandVertically(tween(500)),
+                      exit = fadeOut(tween(250)) + shrinkVertically(tween(300))
+                  ) {
+                      Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(28.dp, Ember, 0.10f).padding(18.dp)) {
+                          Txt("So trittst du bei", 16, Color.White, FontWeight.Bold)
+                          Gap(8)
+                          Txt("1.  Minecraft auf der PS5 öffnen", 13, Color.White.copy(alpha = 0.8f))
+                          Txt("2.  Spielen → Freunde → LAN-Spiele", 13, Color.White.copy(alpha = 0.8f))
+                          Txt("3.  „" + (sel?.name ?: "") + "“ antippen", 13, Color.White.copy(alpha = 0.8f))
+                          Gap(8)
+                          Txt("Handy-IP: " + Net.localIp(), 12, Color.White.copy(alpha = 0.5f))
+                      }
+                  }
+                  val err = Live.error
+                  if (err != null) {
+                      Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(24.dp, Pink, 0.14f).padding(16.dp)) {
+                          Txt("⚠ " + err, 13, Color.White)
+                      }
+                  }
+                  Gap(20)
+              }
+          }
+
+          // ---------------------------------------------------------------- Server
+
+          @Composable
+          fun Servers(openDlg: (Srv?) -> Unit) {
+              var onlyFav by remember { mutableStateOf(false) }
+              val list = Store.servers.filter { !onlyFav || it.fav }.sortedByDescending { it.fav }
+              Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                      Column(Modifier.weight(1f)) {
+                          Txt("Meine Server", 26, Color.White, FontWeight.Black)
+                          Txt(Store.servers.size.toString() + " gespeichert", 12, Color.White.copy(alpha = 0.55f))
+                      }
+                      Box(
+                          Modifier.bounce { openDlg(null) }.size(54.dp).glass(27.dp, Ember, 0.25f),
+                          contentAlignment = Alignment.Center
+                      ) { Txt("+", 30, Color.White, FontWeight.Bold) }
+                  }
+                  Gap(14)
+                  Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                      Chip("Alle", false, !onlyFav) { onlyFav = false }
+                      Chip("Favoriten", true, onlyFav) { onlyFav = true }
+                  }
+                  Gap(12)
+                  LazyColumn(
+                      Modifier.weight(1f).fillMaxWidth(),
+                      verticalArrangement = Arrangement.spacedBy(12.dp),
+                      contentPadding = PaddingValues(bottom = 16.dp)
+                  ) {
+                      if (list.isEmpty()) {
+                          item {
+                              Column(Modifier.appear(0).fillMaxWidth().glass().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                  Txt("🔥", 40)
+                                  Gap(8)
+                                  Txt(if (onlyFav) "Noch keine Favoriten" else "Noch keine Server", 17, Color.White, FontWeight.Bold)
+                                  Gap(4)
+                                  Txt("Tippe oben rechts auf + und trage IP und Port ein.", 13, Color.White.copy(alpha = 0.6f), align = TextAlign.Center)
+                              }
+                          }
+                      }
+                      itemsIndexed(list, key = { _, s -> s.id }) { i, s ->
+                          ServerCard(Modifier.animateItemPlacement(), s, i) { openDlg(s) }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun ServerCard(mod: Modifier, s: Srv, idx: Int, onEdit: () -> Unit) {
+              val ctx = LocalContext.current
+              val selected = s.id == Store.selected
+              val bc by animateColorAsState(if (selected) Ember else Color.White.copy(alpha = 0.0f), tween(350), label = "cardborder")
+              val star by animateFloatAsState(if (s.fav) 1.15f else 1f, spring(dampingRatio = 0.3f, stiffness = 400f), label = "star")
+              val starCol by animateColorAsState(if (s.fav) Gold else Color.White.copy(alpha = 0.35f), tween(250), label = "starcol")
+              Row(
+                  mod.appear(idx * 70).bounce {
+                      Store.selected = s.id
+                      Store.save(ctx)
+                  }.fillMaxWidth()
+                      .glass(24.dp, if (selected) Ember else Color.White, if (selected) 0.14f else 0.08f)
+                      .border(1.5.dp, bc, RoundedCornerShape(24.dp))
+                      .padding(16.dp),
+                  verticalAlignment = Alignment.CenterVertically
+              ) {
+                  Box(
+                      Modifier.bounce { Store.upsert(ctx, s.copy(fav = !s.fav)) }.size(40.dp).graphicsLayer { scaleX = star; scaleY = star },
+                      contentAlignment = Alignment.Center
+                  ) { Txt("★", 24, starCol) }
+                  GapW(8)
+                  Column(Modifier.weight(1f)) {
+                      Txt(s.name, 17, Color.White, FontWeight.Bold, lines = 1)
+                      Txt(s.host + ":" + s.port, 12, Color.White.copy(alpha = 0.55f), lines = 1)
+                      if (selected) {
+                          Gap(4)
+                          Txt("● Ausgewählt", 11, Ember, FontWeight.Bold)
+                      }
+                  }
+                  Box(
+                      Modifier.bounce(onEdit).size(42.dp).glass(21.dp),
+                      contentAlignment = Alignment.Center
+                  ) { Txt("✎", 18) }
+              }
+          }
+
+          @Composable
+          fun GField(label: String, v: String, onChange: (String) -> Unit, kb: KeyboardType = KeyboardType.Text) {
+              Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                  Txt(label, 11, Color.White.copy(alpha = 0.55f), FontWeight.Bold, ls = 1.5f)
+                  Gap(6)
+                  Box(Modifier.fillMaxWidth().glass(16.dp, Color.White, 0.06f).padding(horizontal = 16.dp, vertical = 14.dp)) {
+                      BasicTextField(
+                          value = v,
+                          onValueChange = onChange,
+                          singleLine = true,
+                          textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                          cursorBrush = SolidColor(Ember),
+                          keyboardOptions = KeyboardOptions(keyboardType = kb),
+                          modifier = Modifier.fillMaxWidth()
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun GButton(text: String, tint: Color, mod: Modifier, onClick: () -> Unit) {
+              Box(mod.bounce(onClick).glass(20.dp, tint, 0.30f).padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                  Txt(text, 15, Color.White, FontWeight.Bold)
+              }
+          }
+
+          @Composable
+          fun BoxScope.Sheet(open: Boolean, srv: Srv?, key: Int, close: () -> Unit) {
+              val ctx = LocalContext.current
+              AnimatedVisibility(open, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
+                  Box(
+                      Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
+                          .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { close() }
+                  )
+              }
+              AnimatedVisibility(
+                  open,
+                  modifier = Modifier.align(Alignment.BottomCenter),
+                  enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 300f)) { it } + fadeIn(tween(200)),
+                  exit = slideOutVertically(tween(250)) { it } + fadeOut(tween(200))
+              ) {
+                  var name by remember(key) { mutableStateOf(srv?.name ?: "") }
+                  var host by remember(key) { mutableStateOf(srv?.host ?: "") }
+                  var port by remember(key) { mutableStateOf(if (srv != null) srv.port.toString() else "19132") }
+                  var err by remember(key) { mutableStateOf<String?>(null) }
+
+                  fun save() {
+                      var h = host.trim().removePrefix("http://").removePrefix("https://").trimEnd('/')
+                      var p = port.trim().toIntOrNull()
+                      if (h.count { it == ':' } == 1) {
+                          val parts = h.split(":")
+                          h = parts[0]
+                          if (p == null) p = parts[1].toIntOrNull()
+                      }
+                      if (h.isBlank()) {
+                          err = "Bitte eine Server-Adresse eingeben"
+                          return
+                      }
+                      val pp = p ?: 19132
+                      if (pp < 1 || pp > 65535) {
+                          err = "Port muss zwischen 1 und 65535 liegen"
+                          return
+                      }
+                      Store.upsert(ctx, Srv(srv?.id ?: UUID.randomUUID().toString(), name.trim().ifBlank { h }, h, pp, srv?.fav ?: false))
+                      close()
+                  }
+
+                  Column(
+                      Modifier.imePadding().navigationBarsPadding().padding(12.dp).fillMaxWidth()
+                          .glass(36.dp, Color(0xFF2A1233), 0.55f).padding(22.dp)
+                  ) {
+                      Txt(if (srv == null) "Server hinzufügen" else "Server bearbeiten", 20, Color.White, FontWeight.Black)
+                      Gap(16)
+                      GField("NAME", name, { name = it })
+                      GField("IP / DOMAIN", host, { host = it }, KeyboardType.Uri)
+                      GField("PORT", port, { port = it.filter { c -> c.isDigit() }.take(5) }, KeyboardType.Number)
+                      val e = err
+                      if (e != null) {
+                          Txt("⚠ " + e, 13, Pink)
+                          Gap(10)
+                      }
+                      Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                          if (srv != null) {
+                              GButton("Löschen", Pink, Modifier.weight(1f)) {
+                                  Store.remove(ctx, srv.id)
+                                  close()
+                              }
+                          }
+                          GButton("Speichern", Ember, Modifier.weight(1f)) { save() }
+                      }
+                  }
+              }
+          }
+
+          // ---------------------------------------------------------------- Info
+
+          @Composable
+          fun InfoCard(idx: Int, title: String, lines: List<String>) {
+              Column(Modifier.appear(idx * 90).fillMaxWidth().glass().padding(18.dp)) {
+                  Txt(title, 16, Color.White, FontWeight.Bold)
+                  Gap(8)
+                  for (l in lines) {
+                      Txt(l, 13, Color.White.copy(alpha = 0.72f))
+                      Gap(5)
+                  }
+              }
+          }
+
+          @Composable
+          fun Info() {
+              Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+                  Txt("Info", 26, Color.White, FontWeight.Black)
+                  Gap(14)
+                  InfoCard(
+                      0, "So funktioniert's", listOf(
+                          "1.  Handy und PS5 ins selbe WLAN.",
+                          "2.  Server im Tab „Server“ anlegen und auswählen.",
+                          "3.  Auf der Startseite die Flamme antippen.",
+                          "4.  Minecraft → Spielen → Freunde → LAN-Spiele.",
+                          "5.  Nach dem Beitritt läuft die Brücke im Hintergrund weiter – nicht beenden."
+                      )
+                  )
+                  Gap(12)
+                  InfoCard(
+                      1, "Alle Versionen", listOf(
+                          "Flamme SMP fragt den echten Server nach Version und Protokoll und gibt die Antwort unverändert an die Konsole weiter. So passt sich die Brücke automatisch an jede Bedrock-Version an – auch an neue Updates."
+                      )
+                  )
+                  Gap(12)
+                  InfoCard(
+                      2, "⚡ Turbo-Modus", listOf(
+                          "Aktiviert ein Low-Latency-WLAN-Lock, hohe Thread-Priorität, große Puffer und Low-Delay-Markierung der Pakete. Das reduziert lokalen Jitter. Deine Internetleitung und die Entfernung zum Server kann kein Programm schneller machen."
+                      )
+                  )
+                  Gap(12)
+                  InfoCard(
+                      3, "Fehler „Terracotta“?", listOf(
+                          "Terracotta ist ein Anmelde-Fehler von Minecraft selbst, kein Fehler dieser App.",
+                          "•  In Minecraft ab- und wieder anmelden",
+                          "•  PS5 komplett neu starten, Spiel updaten",
+                          "•  PS-Plus aktiv? Anderes WLAN testen",
+                          "•  Tritt er auch mit anderen LAN-Apps auf, liegt es am Spiel-Update."
+                      )
+                  )
+                  Gap(18)
+                  Txt("Flamme SMP · Version 1.0", 12, Color.White.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
+                  Gap(20)
+              }
+          }
+          FLAMME_EOF_13
+          # Fester Signatur-Schlüssel (damit Updates über die alte App installiert werden können)
+          echo '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' | base64 -d > app/flamme.jks
+
+      - name: APK bauen
+        working-directory: flamme
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: APK umbenennen
+        run: |
+          mkdir -p out
+          cp flamme/app/build/outputs/apk/release/app-release.apk out/FlammeSMP.apk
+
+      - name: APK hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlammeSMP-APK
+          path: out/FlammeSMP.apk
