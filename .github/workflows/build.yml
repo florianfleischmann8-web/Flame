@@ -93,8 +93,8 @@ jobs:
                   applicationId = "de.flamme.smp"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 3
-                  versionName = "2.0"
+                  versionCode = 4
+                  versionName = "2.1"
                   buildConfigField("String", "SB_URL", "\"" + sbUrl + "\"")
                   buildConfigField("String", "SB_KEY", "\"" + sbKey + "\"")
               }
@@ -360,6 +360,8 @@ jobs:
               var sessions by mutableStateOf(0)
               var error by mutableStateOf<String?>(null)
               var requests by mutableStateOf(0)
+              var stage by mutableStateOf(0)
+              var stageNote by mutableStateOf("")
               var joins by mutableStateOf(0)
               val log = mutableStateListOf<String>()
 
@@ -439,6 +441,19 @@ jobs:
           val Ink = Color(0xFF2C1B3F)
           val Leaf = Color(0xFF16A34A)
 
+          object Anim {
+              var t by mutableFloatStateOf(0f)
+          }
+
+          @Composable
+          fun AnimClock() {
+              LaunchedEffect(Unit) {
+                  while (true) {
+                      withFrameNanos { n -> Anim.t = ((n / 1000000L) % 1000000L).toFloat() / 1000f }
+                  }
+              }
+          }
+
           class MainActivity : ComponentActivity() {
               private val perm = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
@@ -471,6 +486,17 @@ jobs:
                   .clip(shape)
                   .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.80f), Color.White.copy(alpha = 0.44f))))
                   .background(if (tinted) Brush.verticalGradient(listOf(tint.copy(alpha = a + 0.10f), tint.copy(alpha = a))) else SolidColor(Color.Transparent))
+                  .drawBehind {
+                      val w = size.width
+                      val h = size.height
+                      val x = (((Anim.t * 0.10f) + h * 0.0009f) % 1.9f - 0.45f) * w
+                      drawRect(
+                          Brush.linearGradient(
+                              listOf(Color.Transparent, Color.White.copy(alpha = 0.40f), Color(0xFF9BE3FF).copy(alpha = 0.16f), Color.Transparent),
+                              start = Offset(x, 0f), end = Offset(x + w * 0.5f, h)
+                          )
+                      )
+                  }
                   .border(1.2.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.80f))), shape)
           }
 
@@ -540,6 +566,30 @@ jobs:
                   drawRect(Brush.radialGradient(listOf(Color(0xFF7CE0B0).copy(alpha = 0.50f), Color.Transparent), center = ctr, radius = r))
                   ctr = Offset(w * (0.80f - 0.40f * a.value), h * (0.80f - 0.15f * c.value))
                   drawRect(Brush.radialGradient(listOf(Pink.copy(alpha = 0.22f), Color.Transparent), center = ctr, radius = r * 0.8f))
+                  // fliessende Wasserwellen
+                  val tt = Anim.t
+                  for (k in 0..2) {
+                      val amp = h * (0.014f + 0.007f * k)
+                      val base = h * (0.82f + 0.06f * k)
+                      val dir = if (k % 2 == 0) 1f else -1f
+                      val path = Path()
+                      path.moveTo(0f, h)
+                      var x = 0f
+                      while (x <= w + 16f) {
+                          val y = base + amp * kotlin.math.sin((x / w) * 6.28f * (1.1f + 0.35f * k) + tt * (0.9f + 0.35f * k) * dir)
+                          path.lineTo(x, y)
+                          x += 16f
+                      }
+                      path.lineTo(w, h)
+                      path.close()
+                      drawPath(
+                          path,
+                          Brush.verticalGradient(
+                              listOf(Color(0xFF5AC8FA).copy(alpha = 0.26f - 0.06f * k), Color(0xFF7CE0B0).copy(alpha = 0.06f)),
+                              startY = base - amp, endY = h
+                          )
+                      )
+                  }
               }
           }
 
@@ -557,6 +607,7 @@ jobs:
               BackHandler(open) { open = false }
               BackHandler(dopen) { dopen = false }
               Box(Modifier.fillMaxSize()) {
+                  AnimClock()
                   Aurora()
                   Column(Modifier.fillMaxSize().statusBarsPadding()) {
                       Header()
@@ -664,6 +715,12 @@ jobs:
                               style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round)
                           )
                       }
+                      if (on > 0.01f) {
+                          for (k in 0..2) {
+                              val ph = ((Anim.t * 0.30f) + k / 3f) % 1f
+                              drawCircle(Ember.copy(alpha = 0.40f * (1f - ph) * on), radius = r * (0.66f + 0.34f * ph), center = c, style = Stroke(2.5.dp.toPx()))
+                          }
+                      }
                       drawCircle(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.55f))), radius = r * 0.66f, center = c)
                       drawCircle(
                           Brush.linearGradient(listOf(Ember.copy(alpha = 0.7f), Gold.copy(alpha = 0.25f), Ember.copy(alpha = 0.5f))),
@@ -721,6 +778,99 @@ jobs:
           }
 
           @Composable
+          fun PulseDot(col: Color, active: Boolean) {
+              Canvas(Modifier.size(26.dp)) {
+                  val c = center
+                  val r = size.minDimension / 2f
+                  if (active) {
+                      for (k in 0..1) {
+                          val ph = ((Anim.t * 0.6f) + k * 0.5f) % 1f
+                          drawCircle(col.copy(alpha = 0.5f * (1f - ph)), radius = r * (0.45f + 0.55f * ph), center = c, style = Stroke(2.dp.toPx()))
+                      }
+                  }
+                  drawCircle(col, radius = r * 0.42f, center = c)
+              }
+          }
+
+          @Composable
+          fun ConnBanner() {
+              val connected = Live.running && Live.stage >= 4
+              val col by animateColorAsState(
+                  if (connected) Leaf else if (Live.running) Gold else Ink.copy(alpha = 0.3f), tween(500), label = "banner"
+              )
+              Row(
+                  Modifier.fillMaxWidth().glass(26.dp, col, 0.10f).padding(horizontal = 18.dp, vertical = 14.dp),
+                  verticalAlignment = Alignment.CenterVertically
+              ) {
+                  PulseDot(col, Live.running)
+                  GapW(12)
+                  Column(Modifier.weight(1f)) {
+                      Txt(
+                          if (connected) "PS5 verbunden" else if (Live.running) "Warte auf die PS5" else "Nicht aktiv",
+                          16, Ink, FontWeight.Bold
+                      )
+                      Txt(
+                          if (connected) "Spieler verbunden: " + Live.players else if (Live.running) "Öffne auf der PS5 das Spielen-Menü" else "Tippe die Flamme zum Starten",
+                          12, Ink.copy(alpha = 0.6f)
+                      )
+                  }
+                  Txt(Live.players, 24, col, FontWeight.Black)
+              }
+          }
+
+          @Composable
+          fun Steps() {
+              val labels = listOf(
+                  "App bereit (Port 7551 offen)",
+                  "PS5 hat die Welt gefunden",
+                  "Beitritt von der PS5 empfangen",
+                  "Verbindung zur PS5 steht",
+                  "Datenkanal offen – verbunden",
+                  "Anmeldung der PS5",
+                  "Weiterleitung zum Server gesendet"
+              )
+              val done = listOf(
+                  Live.running || Live.stage > 0, Live.requests > 0, Live.stage >= 2, Live.stage >= 3,
+                  Live.stage >= 4, Live.stage >= 5, Live.stage >= 6
+              )
+              val firstOpen = done.indexOfFirst { !it }
+              Column(Modifier.fillMaxWidth().glass().padding(18.dp)) {
+                  Txt("Verbindung", 16, Ink, FontWeight.Bold)
+                  Gap(8)
+                  labels.forEachIndexed { i, l ->
+                      val d = done[i]
+                      val active = Live.running && i == firstOpen
+                      val c by animateColorAsState(if (d) Leaf else if (active) Ember else Ink.copy(alpha = 0.20f), tween(400), label = "step")
+                      Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                          Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                              Canvas(Modifier.fillMaxSize()) {
+                                  val r = size.minDimension / 2f
+                                  if (d) {
+                                      drawCircle(c, radius = r * 0.8f)
+                                  } else {
+                                      drawCircle(c.copy(alpha = 0.25f), radius = r * 0.8f)
+                                      if (active) {
+                                          val ph = (Anim.t * 0.8f) % 1f
+                                          drawCircle(Ember.copy(alpha = 0.55f * (1f - ph)), radius = r * (0.6f + 0.4f * ph), style = Stroke(2.dp.toPx()))
+                                          drawCircle(Ember, radius = r * 0.28f)
+                                      }
+                                  }
+                              }
+                              if (d) Txt("✓", 13, Color.White, FontWeight.Bold)
+                          }
+                          GapW(12)
+                          Txt(l, 13, if (d || active) Ink else Ink.copy(alpha = 0.4f), if (active) FontWeight.Bold else FontWeight.Normal)
+                      }
+                  }
+                  val note = Live.stageNote
+                  if (note.isNotEmpty()) {
+                      Gap(8)
+                      Txt("⚠ " + note, 12, Pink, FontWeight.SemiBold)
+                  }
+              }
+          }
+
+          @Composable
           fun Home() {
               val ctx = LocalContext.current
               val hf = LocalHapticFeedback.current
@@ -762,9 +912,11 @@ jobs:
                       if (Live.running) "Antippen zum Stoppen" else "Antippen: Welt auf der PS5 anzeigen",
                       12, Ink.copy(alpha = 0.5f)
                   )
-                  Gap(16)
+                  Gap(14)
+                  Box(Modifier.appear(60)) { ConnBanner() }
+                  Gap(14)
                   Row(
-                      Modifier.appear(100).fillMaxWidth().horizontalScroll(rememberScrollState()),
+                      Modifier.appear(120).fillMaxWidth().horizontalScroll(rememberScrollState()),
                       horizontalArrangement = Arrangement.spacedBy(10.dp)
                   ) {
                       for (s in Store.servers.sortedByDescending { it.fav }) {
@@ -776,18 +928,20 @@ jobs:
                       }
                       if (Store.servers.isEmpty()) Txt("Noch kein Server – öffne den Tab „Server“", 13, Ink.copy(alpha = 0.6f))
                   }
-                  Gap(16)
+                  Gap(14)
                   Row(Modifier.appear(180).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                       Tile(Modifier.weight(1f), "WELT", if (sel != null) sel.name else "–", Ink)
                       Tile(Modifier.weight(1f), "VERSION", Store.gameVersion, Gold)
                   }
                   Gap(12)
-                  Row(Modifier.appear(260).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                  Row(Modifier.appear(240).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                      Tile(Modifier.weight(1f), "SPIELER", Live.players, Leaf)
                       Tile(Modifier.weight(1f), "PS5-ANFRAGEN", Live.requests.toString(), Ember)
-                      Tile(Modifier.weight(1f), "TRANSFERS", Live.joins.toString(), Leaf)
                   }
                   Gap(12)
-                  Column(Modifier.appear(320).fillMaxWidth().glass().padding(18.dp)) {
+                  Box(Modifier.appear(300)) { Steps() }
+                  Gap(12)
+                  Column(Modifier.appear(340).fillMaxWidth().glass().padding(18.dp)) {
                       Txt("Minecraft-Version auf der PS5", 16, Ink, FontWeight.Bold)
                       Gap(4)
                       Txt("Muss zur Version deiner PS5 passen, sonst erscheint die Welt nicht.", 12, Ink.copy(alpha = 0.6f))
@@ -825,22 +979,6 @@ jobs:
                           }
                       })
                   }
-                  AnimatedVisibility(
-                      Live.running,
-                      enter = fadeIn(tween(500)) + expandVertically(tween(500)),
-                      exit = fadeOut(tween(250)) + shrinkVertically(tween(300))
-                  ) {
-                      Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(28.dp, Ember, 0.10f).padding(18.dp)) {
-                          Txt("So geht's auf der PS5", 16, Ink, FontWeight.Bold)
-                          Gap(8)
-                          Txt("1.  Minecraft starten → Spielen", 13, Ink.copy(alpha = 0.8f))
-                          Txt("2.  In der Liste die LAN-Welt „" + (if (sel != null) sel.name else "") + "“ suchen", 13, Ink.copy(alpha = 0.8f))
-                          Txt("3.  Antippen – du wirst zu deinem Server weitergeleitet", 13, Ink.copy(alpha = 0.8f))
-                          Txt("4.  Danach kannst du diese App schließen", 13, Ink.copy(alpha = 0.8f))
-                          Gap(8)
-                          Txt("Handy-IP: " + Net.localIp(), 12, Ink.copy(alpha = 0.5f))
-                      }
-                  }
                   val err = Live.error
                   if (err != null) {
                       Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(24.dp, Pink, 0.14f).padding(16.dp)) {
@@ -859,7 +997,7 @@ jobs:
                       if (Live.log.isEmpty()) {
                           Txt("Noch keine Einträge – starte die Welt und öffne auf der PS5 das Spielen-Menü.", 12, Ink.copy(alpha = 0.6f))
                       }
-                      for (l in Live.log.toList().takeLast(14)) {
+                      for (l in Live.log.toList().takeLast(16)) {
                           Txt(l, 11, Ink.copy(alpha = 0.8f))
                       }
                   }
@@ -1105,7 +1243,7 @@ jobs:
                       )
                   )
                   Gap(18)
-                  Txt("Flamme SMP · Version 2.0", 12, Ink.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
+                  Txt("Flamme SMP · Version 2.1", 12, Ink.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
                   Gap(20)
               }
           }
@@ -1251,6 +1389,10 @@ jobs:
               private var lenMode = 0
               private var badCount = 0
               private var learned = false
+              private val MAX = 8
+
+              @Volatile
+              private var playersNow = 0
 
               @Volatile
               private var transferDone = false
@@ -1269,6 +1411,12 @@ jobs:
 
                   @Volatile
                   var comp = false
+
+                  @Volatile
+                  var open = false
+
+                  @Volatile
+                  var prefixed = true
                   var loggedIn = false
                   var transfers = 0
                   var msgs = 0
@@ -1287,6 +1435,16 @@ jobs:
                   if (mine()) Live.addLog(m)
               }
 
+              private fun stage(n: Int) {
+                  if (mine() && n > Live.stage) Live.stage = n
+              }
+
+              private fun refreshPlayers() {
+                  val n = sessions.values.count { it.open }
+                  playersNow = n
+                  if (mine()) Live.players = n.toString() + "/" + MAX
+              }
+
               fun start() {
                   Live.owner = this
                   Live.error = null
@@ -1294,6 +1452,9 @@ jobs:
                   Live.joins = 0
                   Live.log.clear()
                   Live.status = "Starte…"
+                  Live.stage = 0
+                  Live.stageNote = ""
+                  Live.players = "0/" + MAX
                   val t = Thread({ loop() }, "flamme-nether")
                   t.isDaemon = true
                   t.start()
@@ -1397,6 +1558,7 @@ jobs:
                   releaseLocks()
                   if (mine()) {
                       Live.running = false
+                      Live.players = "0/" + MAX
                       Live.status = if (Live.error != null) "Fehler" else if (transferDone) "Transfer gesendet ✓ – App kann geschlossen werden" else "Gestoppt"
                   }
                   onEnd?.invoke()
@@ -1420,6 +1582,7 @@ jobs:
                   when (id) {
                       0 -> {
                           Live.requests = Live.requests + 1
+                          stage(1)
                           if (Live.requests <= 3) log("Anfrage von " + from + " (Absender " + sender + ")")
                           respond(ds, from)
                       }
@@ -1461,7 +1624,7 @@ jobs:
                   val server = "Flamme SMP"
                   val level = s.name
                   val head = byteArrayOf(7) + Wire.str(server) + Wire.zz(protocol) + Wire.str(version) + Wire.str(level) +
-                      Wire.zz(0) + Wire.zz(0) + Wire.zz(8) + byteArrayOf(0, 0, 1, 1)
+                      Wire.zz(0) + Wire.zz(playersNow) + Wire.zz(MAX) + byteArrayOf(0, 0, 1, 1)
                   val n = Wire.str(nonce)
                   return listOf(
                       head + n + Wire.zz(4),
@@ -1543,6 +1706,10 @@ jobs:
                   val f = factory ?: return
                   log("PS5 möchte beitreten (Verbindung " + cid + ")")
                   Live.status = "PS5 verbindet…"
+                  stage(2)
+                  val hasId = sdp.contains("a=identity")
+                  val cands = sdp.lines().count { it.startsWith("a=candidate") }
+                  log("Angebot: Identität=" + (if (hasId) "ja" else "nein") + ", Kandidaten=" + cands + ", Länge=" + sdp.length)
                   val sess = Sess(cid, from, sender)
                   sessions[cid] = sess
                   val cfg = PeerConnection.RTCConfiguration(ArrayList<PeerConnection.IceServer>())
@@ -1551,6 +1718,14 @@ jobs:
                       override fun onSignalingChange(st: PeerConnection.SignalingState?) {}
                       override fun onIceConnectionChange(st: PeerConnection.IceConnectionState?) {
                           log("ICE: " + st)
+                          if (st == PeerConnection.IceConnectionState.CONNECTED || st == PeerConnection.IceConnectionState.COMPLETED) {
+                              stage(3)
+                          } else if (st == PeerConnection.IceConnectionState.FAILED) {
+                              if (mine()) Live.stageNote = "Verbindung zur PS5 fehlgeschlagen (ICE). Prüfe WLAN, Gast-Netz und VPN."
+                          } else if (st == PeerConnection.IceConnectionState.DISCONNECTED || st == PeerConnection.IceConnectionState.CLOSED) {
+                              sess.open = false
+                              refreshPlayers()
+                          }
                       }
                       override fun onIceConnectionReceivingChange(b: Boolean) {}
                       override fun onIceGatheringChange(st: PeerConnection.IceGatheringState?) {}
@@ -1567,7 +1742,17 @@ jobs:
                           dc.registerObserver(object : DataChannel.Observer {
                               override fun onBufferedAmountChange(p: Long) {}
                               override fun onStateChange() {
-                                  log("Datenkanal " + dc.label() + ": " + dc.state())
+                                  val stt = dc.state()
+                                  log("Datenkanal " + dc.label() + ": " + stt)
+                                  if (stt == DataChannel.State.OPEN) {
+                                      sess.open = true
+                                      stage(4)
+                                      refreshPlayers()
+                                      if (mine()) Live.status = "PS5 verbunden"
+                                  } else if (stt == DataChannel.State.CLOSED) {
+                                      sess.open = false
+                                      refreshPlayers()
+                                  }
                               }
                               override fun onMessage(b: DataChannel.Buffer?) {
                                   if (b == null) return
@@ -1626,16 +1811,16 @@ jobs:
                   val payload = sess.frag.toByteArray()
                   sess.frag.reset()
                   var body = payload
-                  if (sess.comp) {
-                      if (body.isEmpty()) return
+                  if (sess.comp && body.isNotEmpty()) {
                       val alg = body[0].toInt() and 0xff
-                      body = when (alg) {
-                          0xFF -> body.copyOfRange(1, body.size)
-                          0 -> inflate(body, 1)
-                          else -> {
-                              log("Kompression " + alg + " nicht unterstützt")
-                              return
-                          }
+                      if (alg == 0xFF) {
+                          body = body.copyOfRange(1, body.size)
+                          sess.prefixed = true
+                      } else if (alg == 0) {
+                          body = inflate(body, 1)
+                          sess.prefixed = true
+                      } else {
+                          sess.prefixed = false
                       }
                   }
                   var pos = 0
@@ -1669,7 +1854,7 @@ jobs:
               private fun send(sess: Sess, dc: DataChannel, vararg pks: ByteArray) {
                   val out = ByteArrayOutputStream()
                   out.write(0)
-                  if (sess.comp) out.write(0xFF)
+                  if (sess.comp && sess.prefixed) out.write(0xFF)
                   for (p in pks) {
                       out.write(Wire.varuint(p.size))
                       out.write(p)
@@ -1687,12 +1872,14 @@ jobs:
                               proto = ByteBuffer.wrap(pk, ip.second, 4).order(ByteOrder.BIG_ENDIAN).int
                           }
                           log("PS5 → RequestNetworkSettings (Protokoll " + proto + ")")
+                          stage(4)
                           val settings = Wire.varuint(0x8F) + Wire.le16(0xFFFF) + Wire.le16(0) + byteArrayOf(0, 0, 0, 0, 0, 0)
                           send(sess, dc, settings)
                           sess.comp = true
                       }
                       0x01 -> {
                           log("PS5 → Login")
+                          stage(5)
                           sess.loggedIn = true
                           send(sess, dc, Wire.varuint(0x02) + byteArrayOf(0, 0, 0, 0))
                           Thread.sleep(150)
@@ -1710,6 +1897,7 @@ jobs:
                   send(sess, dc, body)
                   sess.transfers++
                   log("Transfer gesendet an " + s.host + ":" + s.port + " (" + sess.transfers + ")")
+                  stage(6)
                   if (!transferDone) {
                       transferDone = true
                       Live.joins = Live.joins + 1
