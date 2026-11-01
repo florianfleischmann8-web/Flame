@@ -93,8 +93,8 @@ jobs:
                   applicationId = "de.flamme.smp"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 2
-                  versionName = "1.1"
+                  versionCode = 3
+                  versionName = "2.0"
                   buildConfigField("String", "SB_URL", "\"" + sbUrl + "\"")
                   buildConfigField("String", "SB_KEY", "\"" + sbKey + "\"")
               }
@@ -147,6 +147,7 @@ jobs:
               implementation("androidx.compose.foundation:foundation")
               implementation("androidx.compose.animation:animation")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("io.getstream:stream-webrtc-android:1.1.1")
           }
           FLAMME_EOF_4
           mkdir -p app/src/main
@@ -163,6 +164,8 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+              <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
               <application
                   android:allowBackup="false"
@@ -294,6 +297,8 @@ jobs:
           object Store {
               val servers = mutableStateListOf<Srv>()
               var turbo by mutableStateOf(true)
+              var protocol by mutableStateOf(2225)
+              var gameVersion by mutableStateOf("1.26.60")
               var selected by mutableStateOf<String?>(null)
 
               fun load(c: Context) {
@@ -308,6 +313,8 @@ jobs:
                   } catch (e: Exception) {
                   }
                   turbo = sp.getBoolean("turbo", true)
+                  protocol = sp.getInt("proto", 2225)
+                  gameVersion = sp.getString("gver", "1.26.60") ?: "1.26.60"
                   selected = sp.getString("sel", null)
               }
 
@@ -319,6 +326,8 @@ jobs:
                   c.getSharedPreferences("flamme", Context.MODE_PRIVATE).edit()
                       .putString("servers", a.toString())
                       .putBoolean("turbo", turbo)
+                      .putInt("proto", protocol)
+                      .putString("gver", gameVersion)
                       .putString("sel", selected)
                       .apply()
               }
@@ -350,6 +359,15 @@ jobs:
               var downBytes by mutableStateOf(0L)
               var sessions by mutableStateOf(0)
               var error by mutableStateOf<String?>(null)
+              var requests by mutableStateOf(0)
+              var joins by mutableStateOf(0)
+              val log = mutableStateListOf<String>()
+
+              fun addLog(m: String) {
+                  val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.GERMANY).format(java.util.Date())
+                  log.add(t + "  " + m)
+                  while (log.size > 60) log.removeAt(0)
+              }
           }
 
           object Net {
@@ -372,419 +390,6 @@ jobs:
               b < 1024L -> "$b B"
               b < 1048576L -> String.format("%.1f KB", b / 1024.0)
               else -> String.format("%.1f MB", b / 1048576.0)
-          }
-
-          // ---------------------------------------------------------------- Engine
-          // Antwortet auf LAN-Suchanfragen (RakNet Unconnected Ping, UDP 19132) und
-          // leitet danach alle Pakete 1:1 an den echten Server weiter.
-          // Die Server-Antwort (Version/Protokoll) wird original durchgereicht,
-          // dadurch passt sich die Brücke automatisch an jede Bedrock-Version an.
-
-          class Engine(private val ctx: Context, private val s: Srv, private val turbo: Boolean) {
-              @Volatile
-              private var alive = true
-              var onEnd: (() -> Unit)? = null
-
-              private class Sess(val sock: DatagramSocket) {
-                  @Volatile
-                  var last = System.currentTimeMillis()
-              }
-
-              private var main: DatagramSocket? = null
-              private var up: InetSocketAddress? = null
-              private val sessions = ConcurrentHashMap<String, Sess>()
-              private val pool = Executors.newCachedThreadPool()
-              private val upB = AtomicLong()
-              private val downB = AtomicLong()
-              @Volatile
-              private var lastPong: ByteArray? = null
-              private val guid = Random.nextLong()
-              private val magic = byteArrayOf(0, -1, -1, 0, -2, -2, -2, -2, -3, -3, -3, -3, 0x12, 0x34, 0x56, 0x78)
-
-              private var mc: WifiManager.MulticastLock? = null
-              private var wl: WifiManager.WifiLock? = null
-              private var wk: PowerManager.WakeLock? = null
-
-              private fun mine() = Live.owner === this
-
-              private fun spawn(name: String, block: () -> Unit) {
-                  val t = Thread {
-                      if (turbo) {
-                          try {
-                              android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
-                          } catch (e: Exception) {
-                          }
-                      }
-                      block()
-                  }
-                  t.name = name
-                  t.isDaemon = true
-                  t.start()
-              }
-
-              fun start() {
-                  Live.owner = this
-                  Live.error = null
-                  Live.upBytes = 0L
-                  Live.downBytes = 0L
-                  Live.sessions = 0
-                  Live.pingMs = -1
-                  Live.players = "–"
-                  Live.version = "–"
-                  Live.status = "Starte…"
-                  spawn("flamme-main") { runMain() }
-              }
-
-              fun stop() {
-                  alive = false
-                  try {
-                      main?.close()
-                  } catch (e: Exception) {
-                  }
-                  for (x in sessions.values) {
-                      try {
-                          x.sock.close()
-                      } catch (e: Exception) {
-                      }
-                  }
-              }
-
-              private fun friendly(e: Exception): String = when (e) {
-                  is UnknownHostException -> "Server-Adresse nicht gefunden. Prüfe IP/Domain und Internet."
-                  is BindException -> "Port 19132 ist belegt. Schließe andere LAN-Apps und starte neu."
-                  else -> "Fehler: " + (e.message ?: e.javaClass.simpleName)
-              }
-
-              private fun acquireLocks() {
-                  try {
-                      val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                      val m = wm.createMulticastLock("flamme:mc")
-                      m.setReferenceCounted(false)
-                      m.acquire()
-                      mc = m
-                      if (turbo) {
-                          val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
-                          val w = wm.createWifiLock(mode, "flamme:wl")
-                          w.setReferenceCounted(false)
-                          w.acquire()
-                          wl = w
-                      }
-                      val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
-                      val k = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "flamme:cpu")
-                      k.setReferenceCounted(false)
-                      k.acquire()
-                      wk = k
-                  } catch (e: Exception) {
-                  }
-              }
-
-              private fun releaseLocks() {
-                  try {
-                      mc?.release()
-                  } catch (e: Exception) {
-                  }
-                  try {
-                      wl?.release()
-                  } catch (e: Exception) {
-                  }
-                  try {
-                      wk?.release()
-                  } catch (e: Exception) {
-                  }
-              }
-
-              private fun runMain() {
-                  try {
-                      val target = InetSocketAddress(InetAddress.getByName(s.host), s.port)
-                      up = target
-                      acquireLocks()
-                      val m = DatagramSocket(null)
-                      m.reuseAddress = true
-                      m.broadcast = true
-                      if (turbo) {
-                          try {
-                              m.receiveBufferSize = 1 shl 20
-                              m.sendBufferSize = 1 shl 20
-                              m.trafficClass = 0x10
-                          } catch (e: Exception) {
-                          }
-                      }
-                      m.bind(InetSocketAddress(19132))
-                      main = m
-                      if (!alive) return
-                      Live.running = true
-                      Live.status = "Aktiv · wartet auf Konsole"
-                      spawn("flamme-stats") { statLoop() }
-                      val buf = ByteArray(4096)
-                      while (alive) {
-                          val p = DatagramPacket(buf, buf.size)
-                          m.receive(p)
-                          val len = p.length
-                          if (len <= 0) continue
-                          val from = p.socketAddress
-                          val key = from.toString()
-                          val ss = sessions[key]
-                          if (ss != null) {
-                              ss.last = System.currentTimeMillis()
-                              ss.sock.send(DatagramPacket(buf, len, target))
-                              upB.addAndGet(len.toLong())
-                          } else {
-                              val id = buf[0].toInt() and 0xff
-                              val data = buf.copyOf(len)
-                              if (id == 0x01 || id == 0x02) {
-                                  pool.execute { handlePing(data, from) }
-                              } else {
-                                  openSession(key, from, data, target)
-                              }
-                          }
-                      }
-                  } catch (e: Exception) {
-                      if (alive && mine()) Live.error = friendly(e)
-                  } finally {
-                      cleanup()
-                  }
-              }
-
-              private fun cleanup() {
-                  alive = false
-                  stop()
-                  releaseLocks()
-                  try {
-                      pool.shutdownNow()
-                  } catch (e: Exception) {
-                  }
-                  if (mine()) {
-                      Live.running = false
-                      Live.status = if (Live.error == null) "Gestoppt" else "Fehler"
-                      Live.pingMs = -1
-                      Live.sessions = 0
-                  }
-                  onEnd?.invoke()
-              }
-
-              private fun openSession(key: String, from: SocketAddress, first: ByteArray, target: InetSocketAddress) {
-                  val sock = DatagramSocket()
-                  sock.soTimeout = 1000
-                  if (turbo) {
-                      try {
-                          sock.trafficClass = 0x10
-                          sock.receiveBufferSize = 1 shl 19
-                          sock.sendBufferSize = 1 shl 19
-                      } catch (e: Exception) {
-                      }
-                  }
-                  val ss = Sess(sock)
-                  sessions[key] = ss
-                  sock.send(DatagramPacket(first, first.size, target))
-                  upB.addAndGet(first.size.toLong())
-                  spawn("flamme-sess") {
-                      val b = ByteArray(4096)
-                      try {
-                          while (alive && System.currentTimeMillis() - ss.last < 30000L) {
-                              try {
-                                  val q = DatagramPacket(b, b.size)
-                                  sock.receive(q)
-                                  main?.send(DatagramPacket(b, q.length, from))
-                                  downB.addAndGet(q.length.toLong())
-                                  ss.last = System.currentTimeMillis()
-                              } catch (e: SocketTimeoutException) {
-                              }
-                          }
-                      } catch (e: Exception) {
-                      }
-                      try {
-                          sock.close()
-                      } catch (e: Exception) {
-                      }
-                      sessions.remove(key)
-                  }
-              }
-
-              private fun handlePing(data: ByteArray, from: SocketAddress) {
-                  var out: ByteArray? = null
-                  val s2 = DatagramSocket()
-                  try {
-                      s2.soTimeout = 1500
-                      s2.send(DatagramPacket(data, data.size, up))
-                      val b = ByteArray(2048)
-                      val q = DatagramPacket(b, b.size)
-                      s2.receive(q)
-                      val raw = b.copyOf(q.length)
-                      if ((raw[0].toInt() and 0xff) == 0x1c) {
-                          lastPong = raw
-                          out = rewrite(raw, data)
-                      }
-                  } catch (e: Exception) {
-                  } finally {
-                      s2.close()
-                  }
-                  if (out == null) {
-                      val cached = lastPong
-                      if (cached != null) out = rewrite(cached, data)
-                  }
-                  val o = out
-                  if (o != null && alive) {
-                      try {
-                          main?.send(DatagramPacket(o, o.size, from))
-                      } catch (e: Exception) {
-                      }
-                  }
-              }
-
-              private fun fields(pong: ByteArray): MutableList<String>? {
-                  if (pong.size < 36 || (pong[0].toInt() and 0xff) != 0x1c) return null
-                  val len = ((pong[33].toInt() and 0xff) shl 8) or (pong[34].toInt() and 0xff)
-                  val end = minOf(35 + len, pong.size)
-                  return String(pong, 35, end - 35, Charsets.UTF_8).split(";").toMutableList()
-              }
-
-              private fun info(f: List<String>) {
-                  if (f.size > 5 && mine()) {
-                      Live.motd = f[1]
-                      Live.version = f[3]
-                      Live.players = f[4] + "/" + f[5]
-                  }
-              }
-
-              private fun rewrite(pong: ByteArray, ping: ByteArray?): ByteArray {
-                  val f = fields(pong) ?: return pong
-                  info(f)
-                  if (f.size < 8) return pong
-                  f[1] = s.name
-                  f[7] = s.name
-                  if (f.size > 10) f[10] = "19132"
-                  if (f.size > 11) f[11] = "19132"
-                  val sb = f.joinToString(";").toByteArray(Charsets.UTF_8)
-                  val out = ByteArray(35 + sb.size)
-                  System.arraycopy(pong, 0, out, 0, 33)
-                  out[33] = (sb.size shr 8).toByte()
-                  out[34] = sb.size.toByte()
-                  System.arraycopy(sb, 0, out, 35, sb.size)
-                  if (ping != null && ping.size >= 9) System.arraycopy(ping, 1, out, 1, 8)
-                  return out
-              }
-
-              private fun probe(): Int {
-                  val s2 = DatagramSocket()
-                  try {
-                      s2.soTimeout = 1500
-                      val bb = ByteBuffer.allocate(33)
-                      bb.put(0x01.toByte())
-                      bb.putLong(System.nanoTime())
-                      bb.put(magic)
-                      bb.putLong(guid)
-                      val t0 = System.nanoTime()
-                      s2.send(DatagramPacket(bb.array(), 33, up))
-                      val b = ByteArray(2048)
-                      val q = DatagramPacket(b, b.size)
-                      s2.receive(q)
-                      val ms = ((System.nanoTime() - t0) / 1000000L).toInt()
-                      val raw = b.copyOf(q.length)
-                      val f = fields(raw)
-                      if (f != null) {
-                          lastPong = raw
-                          info(f)
-                      }
-                      return ms
-                  } catch (e: Exception) {
-                      return -1
-                  } finally {
-                      s2.close()
-                  }
-              }
-
-              private fun statLoop() {
-                  var n = 0
-                  while (alive) {
-                      if (mine()) {
-                          Live.upBytes = upB.get()
-                          Live.downBytes = downB.get()
-                          Live.sessions = sessions.size
-                          Live.status = if (sessions.isNotEmpty()) "Verbunden · Konsole spielt" else "Aktiv · wartet auf Konsole"
-                      }
-                      if (n % 3 == 0) {
-                          try {
-                              pool.execute {
-                                  val ms = probe()
-                                  if (mine() && alive) Live.pingMs = ms
-                              }
-                          } catch (e: Exception) {
-                          }
-                      }
-                      n++
-                      try {
-                          Thread.sleep(1000)
-                      } catch (e: InterruptedException) {
-                      }
-                  }
-              }
-          }
-
-          // ---------------------------------------------------------------- Service
-
-          class ProxyService : Service() {
-              companion object {
-                  @Volatile
-                  var engine: Engine? = null
-
-                  fun start(c: Context, s: Srv, turbo: Boolean) {
-                      val i = Intent(c, ProxyService::class.java)
-                          .putExtra("n", s.name).putExtra("h", s.host).putExtra("p", s.port).putExtra("t", turbo)
-                      ContextCompat.startForegroundService(c, i)
-                  }
-
-                  fun stop(c: Context) {
-                      c.startService(Intent(c, ProxyService::class.java).setAction("STOP"))
-                  }
-              }
-
-              override fun onBind(i: Intent?): IBinder? = null
-
-              override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
-                  if (i == null || i.action == "STOP") {
-                      engine?.stop()
-                      engine = null
-                      stopForeground(STOP_FOREGROUND_REMOVE)
-                      stopSelf()
-                      return START_NOT_STICKY
-                  }
-                  val name = i.getStringExtra("n") ?: "Server"
-                  val host = i.getStringExtra("h") ?: ""
-                  val port = i.getIntExtra("p", 19132)
-                  val turbo = i.getBooleanExtra("t", true)
-
-                  val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                  nm.createNotificationChannel(NotificationChannel("flamme", "Flamme SMP", NotificationManager.IMPORTANCE_LOW))
-                  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-                  val stopPi = PendingIntent.getService(this, 1, Intent(this, ProxyService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
-                  val n = NotificationCompat.Builder(this, "flamme")
-                      .setSmallIcon(R.drawable.ic_notif)
-                      .setContentTitle("Flamme SMP aktiv")
-                      .setContentText(name + " · " + host + ":" + port)
-                      .setContentIntent(open)
-                      .addAction(0, "Stoppen", stopPi)
-                      .setOngoing(true)
-                      .build()
-                  ServiceCompat.startForeground(this, 1, n, if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-
-                  engine?.stop()
-                  val e = Engine(applicationContext, Srv("run", name, host, port), turbo)
-                  e.onEnd = {
-                      if (engine === e) {
-                          engine = null
-                          stopSelf()
-                      }
-                  }
-                  engine = e
-                  e.start()
-                  return START_NOT_STICKY
-              }
-
-              override fun onDestroy() {
-                  engine?.stop()
-                  engine = null
-                  super.onDestroy()
-              }
           }
           FLAMME_EOF_11
           mkdir -p app/src/main/java/de/flamme/smp
@@ -835,7 +440,7 @@ jobs:
           val Leaf = Color(0xFF16A34A)
 
           class MainActivity : ComponentActivity() {
-              private val perm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+              private val perm = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -845,7 +450,13 @@ jobs:
                   WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
                   Store.load(this)
                   Cfg.load(this)
-                  if (Build.VERSION.SDK_INT >= 33) perm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                  if (Build.VERSION.SDK_INT >= 33) {
+                      val want = ArrayList<String>()
+                      want.add(Manifest.permission.POST_NOTIFICATIONS)
+                      want.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+                      if (Build.VERSION.SDK_INT >= 36) want.add("android.permission.ACCESS_LOCAL_NETWORK")
+                      perm.launch(want.toTypedArray())
+                  }
                   setContent { App() }
               }
           }
@@ -1118,17 +729,8 @@ jobs:
               fun restart() {
                   if (Live.running) {
                       val s = Store.servers.firstOrNull { it.id == Store.selected }
-                      if (s != null) ProxyService.start(ctx, s, Store.turbo)
+                      if (s != null) ProxyService.start(ctx, s, Store.protocol, Store.gameVersion)
                   }
-              }
-
-              val pingTxt = if (!Live.running) "–" else if (Live.pingMs < 0) "offline" else Live.pingMs.toString() + " ms"
-              val pingCol = when {
-                  !Live.running -> Ink.copy(alpha = 0.45f)
-                  Live.pingMs < 0 -> Pink
-                  Live.pingMs < 60 -> Leaf
-                  Live.pingMs < 120 -> Gold
-                  else -> Fire
               }
 
               Column(
@@ -1144,7 +746,7 @@ jobs:
                           } else if (sel != null) {
                               Live.error = null
                               Live.status = "Starte…"
-                              ProxyService.start(ctx, sel, Store.turbo)
+                              ProxyService.start(ctx, sel, Store.protocol, Store.gameVersion)
                           } else {
                               Live.error = "Füge zuerst im Tab „Server“ einen Server hinzu."
                           }
@@ -1157,7 +759,7 @@ jobs:
                   ) { st -> Txt(st, 17, Ink, FontWeight.Bold, align = TextAlign.Center) }
                   Gap(4)
                   Txt(
-                      if (Live.running) "Antippen zum Stoppen" else "Antippen zum Starten",
+                      if (Live.running) "Antippen zum Stoppen" else "Antippen: Welt auf der PS5 anzeigen",
                       12, Ink.copy(alpha = 0.5f)
                   )
                   Gap(16)
@@ -1176,27 +778,52 @@ jobs:
                   }
                   Gap(16)
                   Row(Modifier.appear(180).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                      Tile(Modifier.weight(1f), "PING", pingTxt, pingCol)
-                      Tile(Modifier.weight(1f), "SPIELER", if (Live.running) Live.players else "–", Ink)
+                      Tile(Modifier.weight(1f), "WELT", if (sel != null) sel.name else "–", Ink)
+                      Tile(Modifier.weight(1f), "VERSION", Store.gameVersion, Gold)
                   }
                   Gap(12)
                   Row(Modifier.appear(260).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                      Tile(Modifier.weight(1f), "VERSION", if (Live.running) Live.version else "–", Gold)
-                      Tile(Modifier.weight(1f), "DATEN", fmtBytes(Live.upBytes + Live.downBytes), Ember)
+                      Tile(Modifier.weight(1f), "PS5-ANFRAGEN", Live.requests.toString(), Ember)
+                      Tile(Modifier.weight(1f), "TRANSFERS", Live.joins.toString(), Leaf)
                   }
                   Gap(12)
-                  Row(Modifier.appear(340).fillMaxWidth().glass().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                      Column(Modifier.weight(1f)) {
-                          Txt("⚡ Turbo-Modus", 17, Ink, FontWeight.Bold)
-                          Gap(4)
-                          Txt("Low-Latency-WLAN, priorisierte Pakete und große Puffer – weniger Jitter und Ruckler im lokalen Netz.", 12, Ink.copy(alpha = 0.6f))
+                  Column(Modifier.appear(320).fillMaxWidth().glass().padding(18.dp)) {
+                      Txt("Minecraft-Version auf der PS5", 16, Ink, FontWeight.Bold)
+                      Gap(4)
+                      Txt("Muss zur Version deiner PS5 passen, sonst erscheint die Welt nicht.", 12, Ink.copy(alpha = 0.6f))
+                      Gap(10)
+                      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                          Chip("26.60", false, Store.gameVersion == "1.26.60") {
+                              Store.protocol = 2225
+                              Store.gameVersion = "1.26.60"
+                              Store.save(ctx)
+                              restart()
+                          }
+                          Chip("26.51", false, Store.gameVersion == "1.26.51") {
+                              Store.protocol = 2193
+                              Store.gameVersion = "1.26.51"
+                              Store.save(ctx)
+                              restart()
+                          }
                       }
-                      GapW(14)
-                      GSwitch(Store.turbo) {
-                          Store.turbo = it
-                          Store.save(ctx)
-                          restart()
-                      }
+                      Gap(12)
+                      var pt by remember(Store.protocol) { mutableStateOf(Store.protocol.toString()) }
+                      var vt by remember(Store.gameVersion) { mutableStateOf(Store.gameVersion) }
+                      GField("PROTOKOLL", pt, {
+                          pt = it.filter { c -> c.isDigit() }.take(5)
+                          val n = pt.toIntOrNull()
+                          if (n != null) {
+                              Store.protocol = n
+                              Store.save(ctx)
+                          }
+                      }, KeyboardType.Number)
+                      GField("VERSION", vt, {
+                          vt = it.take(20)
+                          if (vt.isNotBlank()) {
+                              Store.gameVersion = vt.trim()
+                              Store.save(ctx)
+                          }
+                      })
                   }
                   AnimatedVisibility(
                       Live.running,
@@ -1204,11 +831,12 @@ jobs:
                       exit = fadeOut(tween(250)) + shrinkVertically(tween(300))
                   ) {
                       Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(28.dp, Ember, 0.10f).padding(18.dp)) {
-                          Txt("So trittst du bei", 16, Ink, FontWeight.Bold)
+                          Txt("So geht's auf der PS5", 16, Ink, FontWeight.Bold)
                           Gap(8)
-                          Txt("1.  Minecraft auf der PS5 öffnen", 13, Ink.copy(alpha = 0.8f))
-                          Txt("2.  Spielen → Freunde → LAN-Spiele", 13, Ink.copy(alpha = 0.8f))
-                          Txt("3.  „" + (sel?.name ?: "") + "“ antippen", 13, Ink.copy(alpha = 0.8f))
+                          Txt("1.  Minecraft starten → Spielen", 13, Ink.copy(alpha = 0.8f))
+                          Txt("2.  In der Liste die LAN-Welt „" + (if (sel != null) sel.name else "") + "“ suchen", 13, Ink.copy(alpha = 0.8f))
+                          Txt("3.  Antippen – du wirst zu deinem Server weitergeleitet", 13, Ink.copy(alpha = 0.8f))
+                          Txt("4.  Danach kannst du diese App schließen", 13, Ink.copy(alpha = 0.8f))
                           Gap(8)
                           Txt("Handy-IP: " + Net.localIp(), 12, Ink.copy(alpha = 0.5f))
                       }
@@ -1217,6 +845,22 @@ jobs:
                   if (err != null) {
                       Column(Modifier.padding(top = 12.dp).fillMaxWidth().glass(24.dp, Pink, 0.14f).padding(16.dp)) {
                           Txt("⚠ " + err, 13, Ink)
+                      }
+                  }
+                  Column(Modifier.appear(380).padding(top = 12.dp).fillMaxWidth().glass().padding(18.dp)) {
+                      Row(verticalAlignment = Alignment.CenterVertically) {
+                          Txt("Protokoll", 16, Ink, FontWeight.Bold, mod = Modifier.weight(1f))
+                          Pill("Kopieren") {
+                              val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                              cm.setPrimaryClip(android.content.ClipData.newPlainText("Flamme-Log", Live.log.joinToString("\n")))
+                          }
+                      }
+                      Gap(8)
+                      if (Live.log.isEmpty()) {
+                          Txt("Noch keine Einträge – starte die Welt und öffne auf der PS5 das Spielen-Menü.", 12, Ink.copy(alpha = 0.6f))
+                      }
+                      for (l in Live.log.toList().takeLast(14)) {
+                          Txt(l, 11, Ink.copy(alpha = 0.8f))
                       }
                   }
                   Gap(20)
@@ -1426,33 +1070,31 @@ jobs:
                   Gap(14)
                   InfoCard(
                       0, "So funktioniert's", listOf(
-                          "1.  Handy und PS5 ins selbe WLAN.",
+                          "1.  Handy und PS5 im selben WLAN. „Geräte in der Nähe“ erlauben.",
                           "2.  Server im Tab „Server“ anlegen und auswählen.",
                           "3.  Auf der Startseite die Flamme antippen.",
-                          "4.  Minecraft → Spielen → Freunde → LAN-Spiele.",
-                          "5.  Nach dem Beitritt läuft die Brücke im Hintergrund weiter – nicht beenden."
+                          "4.  Auf der PS5 im Spielen-Menü die LAN-Welt antippen – du wirst direkt zu deinem Server weitergeleitet.",
+                          "5.  Danach kannst du die App schließen."
                       )
                   )
                   Gap(12)
                   InfoCard(
-                      1, "Alle Versionen", listOf(
-                          "Flamme SMP fragt den echten Server nach Version und Protokoll und gibt die Antwort unverändert an die Konsole weiter. So passt sich die Brücke automatisch an jede Bedrock-Version an – auch an neue Updates."
+                      1, "Warum so?", listOf(
+                          "Seit Minecraft 26.60 ist der alte LAN-Weg (RakNet) entfernt. Die App meldet sich jetzt über NetherNet und schickt die PS5 per „Transfer“ zum echten Server – so wie Bedrock Together. Während du spielst, läuft nichts über dein Handy."
                       )
                   )
                   Gap(12)
                   InfoCard(
-                      2, "⚡ Turbo-Modus", listOf(
-                          "Aktiviert ein Low-Latency-WLAN-Lock, hohe Thread-Priorität, große Puffer und Low-Delay-Markierung der Pakete. Das reduziert lokalen Jitter. Deine Internetleitung und die Entfernung zum Server kann kein Programm schneller machen."
+                      2, "Version", listOf(
+                          "Die Version muss zu der auf deiner PS5 passen. Du stellst sie auf der Startseite ein (Standard: 26.60)."
                       )
                   )
                   Gap(12)
                   InfoCard(
-                      3, "Fehler „Terracotta“?", listOf(
-                          "Terracotta ist ein Anmelde-Fehler von Minecraft selbst, kein Fehler dieser App.",
-                          "•  In Minecraft ab- und wieder anmelden",
-                          "•  PS5 komplett neu starten, Spiel updaten",
-                          "•  PS-Plus aktiv? Anderes WLAN testen",
-                          "•  Tritt er auch mit anderen LAN-Apps auf, liegt es am Spiel-Update."
+                      3, "Welt erscheint nicht?", listOf(
+                          "•  Auf der Startseite das Protokoll mit „Kopieren“ speichern – das zeigt, wie weit die Verbindung kommt.",
+                          "•  Andere LAN-Apps (z. B. Bedrock Together) beenden: Nur eine App darf den Port nutzen.",
+                          "•  Gleiches WLAN, kein Gast-WLAN, kein VPN."
                       )
                   )
                   Gap(12)
@@ -1463,13 +1105,700 @@ jobs:
                       )
                   )
                   Gap(18)
-                  Txt("Flamme SMP · Version 1.1", 12, Ink.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
+                  Txt("Flamme SMP · Version 2.0", 12, Ink.copy(alpha = 0.4f), align = TextAlign.Center, mod = Modifier.fillMaxWidth())
                   Gap(20)
               }
           }
           FLAMME_EOF_12
           mkdir -p app/src/main/java/de/flamme/smp
-          cat > app/src/main/java/de/flamme/smp/Community.kt <<'FLAMME_EOF_13'
+          cat > app/src/main/java/de/flamme/smp/Nether.kt <<'FLAMME_EOF_13'
+          package de.flamme.smp
+
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.net.wifi.WifiManager
+          import android.os.Build
+          import android.os.IBinder
+          import android.os.PowerManager
+          import androidx.core.app.NotificationCompat
+          import androidx.core.app.ServiceCompat
+          import androidx.core.content.ContextCompat
+          import org.webrtc.DataChannel
+          import org.webrtc.IceCandidate
+          import org.webrtc.MediaConstraints
+          import org.webrtc.MediaStream
+          import org.webrtc.PeerConnection
+          import org.webrtc.PeerConnectionFactory
+          import org.webrtc.SdpObserver
+          import org.webrtc.SessionDescription
+          import java.io.ByteArrayOutputStream
+          import java.net.BindException
+          import java.net.DatagramPacket
+          import java.net.DatagramSocket
+          import java.net.InetSocketAddress
+          import java.net.SocketAddress
+          import java.nio.ByteBuffer
+          import java.nio.ByteOrder
+          import java.security.MessageDigest
+          import java.util.concurrent.ConcurrentHashMap
+          import java.util.zip.Inflater
+          import javax.crypto.Cipher
+          import javax.crypto.Mac
+          import javax.crypto.spec.SecretKeySpec
+          import kotlin.random.Random
+
+          // ------------------------------------------------------------------ Hilfsfunktionen
+
+          object Wire {
+              fun varuint(v0: Int): ByteArray {
+                  var v = v0
+                  val o = ByteArrayOutputStream()
+                  while ((v and 0x7F.inv()) != 0) {
+                      o.write((v and 0x7F) or 0x80)
+                      v = v ushr 7
+                  }
+                  o.write(v)
+                  return o.toByteArray()
+              }
+
+              fun readVar(b: ByteArray, start: Int): Pair<Int, Int> {
+                  var r = 0
+                  var shift = 0
+                  var p = start
+                  while (p < b.size && shift < 35) {
+                      val x = b[p].toInt() and 0xff
+                      p++
+                      r = r or ((x and 0x7F) shl shift)
+                      if ((x and 0x80) == 0) return Pair(r, p)
+                      shift += 7
+                  }
+                  return Pair(-1, p)
+              }
+
+              fun zz(n: Int): ByteArray = varuint((n shl 1) xor (n shr 31))
+
+              fun str(s: String): ByteArray {
+                  val b = s.toByteArray(Charsets.UTF_8)
+                  return varuint(b.size) + b
+              }
+
+              fun le16(n: Int): ByteArray = byteArrayOf((n and 0xff).toByte(), ((n shr 8) and 0xff).toByte())
+
+              fun le32(n: Int): ByteArray = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(n).array()
+
+              fun hex(b: ByteArray, max: Int = 24): String {
+                  val sb = StringBuilder()
+                  for (i in 0 until minOf(b.size, max)) sb.append(String.format("%02x", b[i]))
+                  return sb.toString()
+              }
+          }
+
+          // Verschluesselung der LAN-Erkennung: AES-ECB, Schluessel = SHA-256(0xdeadbeef), davor HMAC-SHA256
+          object Disc {
+              private val key: ByteArray = MessageDigest.getInstance("SHA-256")
+                  .digest(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0xdeadbeefL).array())
+
+              fun mac(plain: ByteArray): ByteArray {
+                  val m = Mac.getInstance("HmacSHA256")
+                  m.init(SecretKeySpec(key, "HmacSHA256"))
+                  return m.doFinal(plain)
+              }
+
+              fun encrypt(plain: ByteArray): ByteArray {
+                  val c = Cipher.getInstance("AES/ECB/PKCS5Padding")
+                  c.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
+                  return mac(plain) + c.doFinal(plain)
+              }
+
+              fun decrypt(data: ByteArray): ByteArray? {
+                  if (data.size < 32 + 16) return null
+                  val body = data.copyOfRange(32, data.size)
+                  if (body.size % 16 != 0) return null
+                  return try {
+                      val c = Cipher.getInstance("AES/ECB/NoPadding")
+                      c.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"))
+                      c.doFinal(body)
+                  } catch (e: Exception) {
+                      null
+                  }
+              }
+          }
+
+          // ------------------------------------------------------------------ Engine
+
+          class NetherEngine(
+              private val ctx: Context,
+              private val s: Srv,
+              private val protocol: Int,
+              private val version: String
+          ) {
+              @Volatile
+              private var alive = true
+              var onEnd: (() -> Unit)? = null
+
+              private var sock: DatagramSocket? = null
+              private val netId: Long = Random.nextLong() and Long.MAX_VALUE
+              private val nonce: String = (0 until 16).joinToString("") { String.format("%02x", Random.nextInt(256)) }
+              private var factory: PeerConnectionFactory? = null
+              private val sessions = ConcurrentHashMap<Long, Sess>()
+
+              @Volatile
+              private var lenMode = 0
+              private var badCount = 0
+              private var learned = false
+
+              @Volatile
+              private var transferDone = false
+
+              private var mc: WifiManager.MulticastLock? = null
+              private var wl: WifiManager.WifiLock? = null
+              private var wk: PowerManager.WakeLock? = null
+
+              private class Sess(val id: Long, val from: SocketAddress, val recipient: Long) {
+                  var pc: PeerConnection? = null
+                  var remoteSet = false
+                  var answerSent = false
+                  val pending = ArrayList<IceCandidate>()
+                  val localQ = ArrayList<IceCandidate>()
+                  val frag = ByteArrayOutputStream()
+
+                  @Volatile
+                  var comp = false
+                  var loggedIn = false
+                  var transfers = 0
+                  var msgs = 0
+              }
+
+              private open class SdpObs : SdpObserver {
+                  override fun onCreateSuccess(d: SessionDescription?) {}
+                  override fun onSetSuccess() {}
+                  override fun onCreateFailure(e: String?) {}
+                  override fun onSetFailure(e: String?) {}
+              }
+
+              private fun mine() = Live.owner === this
+
+              private fun log(m: String) {
+                  if (mine()) Live.addLog(m)
+              }
+
+              fun start() {
+                  Live.owner = this
+                  Live.error = null
+                  Live.requests = 0
+                  Live.joins = 0
+                  Live.log.clear()
+                  Live.status = "Starte…"
+                  val t = Thread({ loop() }, "flamme-nether")
+                  t.isDaemon = true
+                  t.start()
+              }
+
+              fun stop() {
+                  alive = false
+                  try {
+                      sock?.close()
+                  } catch (e: Exception) {
+                  }
+              }
+
+              private fun acquireLocks() {
+                  try {
+                      val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                      val m = wm.createMulticastLock("flamme:mc")
+                      m.setReferenceCounted(false)
+                      m.acquire()
+                      mc = m
+                      val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                      val w = wm.createWifiLock(mode, "flamme:wl")
+                      w.setReferenceCounted(false)
+                      w.acquire()
+                      wl = w
+                      val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+                      val k = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "flamme:cpu")
+                      k.setReferenceCounted(false)
+                      k.acquire()
+                      wk = k
+                  } catch (e: Exception) {
+                  }
+              }
+
+              private fun releaseLocks() {
+                  try {
+                      mc?.release()
+                  } catch (e: Exception) {
+                  }
+                  try {
+                      wl?.release()
+                  } catch (e: Exception) {
+                  }
+                  try {
+                      wk?.release()
+                  } catch (e: Exception) {
+                  }
+              }
+
+              private fun loop() {
+                  try {
+                      acquireLocks()
+                      val ds = DatagramSocket(null)
+                      ds.reuseAddress = true
+                      ds.broadcast = true
+                      ds.bind(InetSocketAddress(7551))
+                      sock = ds
+                      PeerConnectionFactory.initialize(
+                          PeerConnectionFactory.InitializationOptions.builder(ctx.applicationContext).createInitializationOptions()
+                      )
+                      factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+                      Live.running = true
+                      Live.status = "Aktiv · warte auf PS5"
+                      log("Bereit auf " + Net.localIp() + ":7551 – Version " + version + " (Protokoll " + protocol + ")")
+                      log("Ziel: " + s.name + " = " + s.host + ":" + s.port)
+                      val buf = ByteArray(8192)
+                      while (alive) {
+                          val p = DatagramPacket(buf, buf.size)
+                          ds.receive(p)
+                          try {
+                              handleDatagram(ds, p.socketAddress, buf.copyOfRange(0, p.length))
+                          } catch (e: Exception) {
+                              log("Fehler bei Paket: " + (e.message ?: e.javaClass.simpleName))
+                          }
+                      }
+                  } catch (e: Throwable) {
+                      if (alive && mine()) {
+                          val msg = if (e is BindException) "Port 7551 ist belegt. Beende andere LAN-Apps (z. B. Bedrock Together) und starte neu." else "Fehler: " + (e.message ?: e.javaClass.simpleName)
+                          Live.error = msg
+                          log(msg)
+                      }
+                  } finally {
+                      cleanup()
+                  }
+              }
+
+              private fun cleanup() {
+                  alive = false
+                  stop()
+                  for (x in sessions.values) {
+                      try {
+                          x.pc?.close()
+                      } catch (e: Throwable) {
+                      }
+                  }
+                  sessions.clear()
+                  try {
+                      factory?.dispose()
+                  } catch (e: Throwable) {
+                  }
+                  releaseLocks()
+                  if (mine()) {
+                      Live.running = false
+                      Live.status = if (Live.error != null) "Fehler" else if (transferDone) "Transfer gesendet ✓ – App kann geschlossen werden" else "Gestoppt"
+                  }
+                  onEnd?.invoke()
+              }
+
+              // ---------------------------------------------------------- LAN-Erkennung
+
+              private fun handleDatagram(ds: DatagramSocket, from: SocketAddress, data: ByteArray) {
+                  val plain = Disc.decrypt(data)
+                  if (plain == null || plain.size < 20) {
+                      if (badCount < 5) {
+                          badCount++
+                          log("Unlesbares Paket (" + data.size + " B): " + Wire.hex(data, 12))
+                      }
+                      return
+                  }
+                  val bb = ByteBuffer.wrap(plain).order(ByteOrder.LITTLE_ENDIAN)
+                  val id = bb.getShort(2).toInt() and 0xffff
+                  val sender = bb.getLong(4)
+                  if (!learned && id == 0) learnFormat(data, plain, bb)
+                  when (id) {
+                      0 -> {
+                          Live.requests = Live.requests + 1
+                          if (Live.requests <= 3) log("Anfrage von " + from + " (Absender " + sender + ")")
+                          respond(ds, from)
+                      }
+                      2 -> {
+                          if (plain.size < 32) return
+                          val n = bb.getInt(28)
+                          if (n < 0 || 32 + n > plain.size) {
+                              log("Signal-Paket mit ungültiger Länge")
+                              return
+                          }
+                          handleSignal(from, sender, String(plain, 32, n, Charsets.UTF_8))
+                      }
+                      else -> {}
+                  }
+              }
+
+              // Erste Anfrage der PS5 auswerten: Laengenfeld-Bedeutung und Pruefsumme
+              private fun learnFormat(raw: ByteArray, plain: ByteArray, bb: ByteBuffer) {
+                  learned = true
+                  val declared = bb.getShort(0).toInt() and 0xffff
+                  log("Erste Anfrage entschlüsselt: " + Wire.hex(plain, 32))
+                  val sum = raw.copyOfRange(0, 32)
+                  val a = declared + 2
+                  val b = declared
+                  var macOk = "nein"
+                  if (a in 1..plain.size && Disc.mac(plain.copyOfRange(0, a)).contentEquals(sum)) {
+                      lenMode = 0
+                      macOk = "ja (Länge ohne Längenfeld)"
+                  } else if (b in 1..plain.size && Disc.mac(plain.copyOfRange(0, b)).contentEquals(sum)) {
+                      lenMode = 1
+                      macOk = "ja (Länge inklusive Längenfeld)"
+                  } else {
+                      lenMode = if (declared == 18) 0 else 1
+                  }
+                  log("Prüfsumme stimmt: " + macOk + ", Längenfeld=" + declared)
+              }
+
+              private fun layouts(): List<ByteArray> {
+                  val server = "Flamme SMP"
+                  val level = s.name
+                  val head = byteArrayOf(7) + Wire.str(server) + Wire.zz(protocol) + Wire.str(version) + Wire.str(level) +
+                      Wire.zz(0) + Wire.zz(0) + Wire.zz(8) + byteArrayOf(0, 0, 1, 1)
+                  val n = Wire.str(nonce)
+                  return listOf(
+                      head + n + Wire.zz(4),
+                      head + Wire.zz(4) + n,
+                      head + n + Wire.zz(2) + Wire.zz(4)
+                  )
+              }
+
+              private fun build(id: Int, data: ByteArray): ByteArray {
+                  val inner = 2 + 8 + 8 + data.size
+                  val bb = ByteBuffer.allocate(2 + inner).order(ByteOrder.LITTLE_ENDIAN)
+                  bb.putShort((if (lenMode == 0) inner else inner + 2).toShort())
+                  bb.putShort(id.toShort())
+                  bb.putLong(netId)
+                  bb.put(ByteArray(8))
+                  bb.put(data)
+                  return Disc.encrypt(bb.array())
+              }
+
+              private fun respond(ds: DatagramSocket, to: SocketAddress) {
+                  var n = 0
+                  for (layout in layouts()) {
+                      val hexStr = Wire.hex(layout, layout.size).toByteArray(Charsets.US_ASCII)
+                      for (width in 0..1) {
+                          if (width == 1 && hexStr.size > 255) continue
+                          val body = if (width == 0) Wire.le32(hexStr.size) + hexStr else byteArrayOf(hexStr.size.toByte()) + hexStr
+                          val pkt = build(1, body)
+                          ds.send(DatagramPacket(pkt, pkt.size, to))
+                          n++
+                      }
+                  }
+                  if (Live.requests <= 2) log(n.toString() + " Welt-Beschreibungen gesendet")
+              }
+
+              // ---------------------------------------------------------- Signalisierung + WebRTC
+
+              private fun handleSignal(from: SocketAddress, sender: Long, text: String) {
+                  val a = text.indexOf(' ')
+                  if (a < 0) return
+                  val type = text.substring(0, a)
+                  val b = text.indexOf(' ', a + 1)
+                  if (b < 0) return
+                  val cid = text.substring(a + 1, b).toLongOrNull() ?: return
+                  val data = text.substring(b + 1)
+                  when (type) {
+                      "CONNECTREQUEST" -> startSession(from, sender, cid, data)
+                      "CANDIDATEADD" -> {
+                          val sess = sessions[cid]
+                          if (sess != null) addRemoteCandidate(sess, data)
+                      }
+                      "CONNECTERROR" -> log("PS5 meldet Verbindungsfehler: " + data)
+                      else -> log("Unbekanntes Signal: " + type)
+                  }
+              }
+
+              private fun sendSignal(sess: Sess, text: String) {
+                  val ds = sock ?: return
+                  val t = text.toByteArray(Charsets.UTF_8)
+                  val body = ByteBuffer.allocate(8 + 4 + t.size).order(ByteOrder.LITTLE_ENDIAN)
+                      .putLong(sess.recipient).putInt(t.size).put(t).array()
+                  val pkt = build(2, body)
+                  try {
+                      ds.send(DatagramPacket(pkt, pkt.size, sess.from))
+                  } catch (e: Exception) {
+                      log("Signal senden fehlgeschlagen: " + (e.message ?: ""))
+                  }
+              }
+
+              private fun addRemoteCandidate(sess: Sess, cand: String) {
+                  val c = IceCandidate("0", 0, cand)
+                  if (!sess.remoteSet) {
+                      sess.pending.add(c)
+                  } else {
+                      sess.pc?.addIceCandidate(c)
+                  }
+              }
+
+              private fun startSession(from: SocketAddress, sender: Long, cid: Long, sdp: String) {
+                  val f = factory ?: return
+                  log("PS5 möchte beitreten (Verbindung " + cid + ")")
+                  Live.status = "PS5 verbindet…"
+                  val sess = Sess(cid, from, sender)
+                  sessions[cid] = sess
+                  val cfg = PeerConnection.RTCConfiguration(ArrayList<PeerConnection.IceServer>())
+                  cfg.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                  val pc = f.createPeerConnection(cfg, object : PeerConnection.Observer {
+                      override fun onSignalingChange(st: PeerConnection.SignalingState?) {}
+                      override fun onIceConnectionChange(st: PeerConnection.IceConnectionState?) {
+                          log("ICE: " + st)
+                      }
+                      override fun onIceConnectionReceivingChange(b: Boolean) {}
+                      override fun onIceGatheringChange(st: PeerConnection.IceGatheringState?) {}
+                      override fun onIceCandidate(c: IceCandidate?) {
+                          if (c == null) return
+                          if (sess.answerSent) sendSignal(sess, "CANDIDATEADD " + sess.id + " " + c.sdp) else sess.localQ.add(c)
+                      }
+                      override fun onIceCandidatesRemoved(c: Array<out IceCandidate>?) {}
+                      override fun onAddStream(m: MediaStream?) {}
+                      override fun onRemoveStream(m: MediaStream?) {}
+                      override fun onDataChannel(dc: DataChannel?) {
+                          if (dc == null) return
+                          log("Datenkanal geöffnet: " + dc.label())
+                          dc.registerObserver(object : DataChannel.Observer {
+                              override fun onBufferedAmountChange(p: Long) {}
+                              override fun onStateChange() {
+                                  log("Datenkanal " + dc.label() + ": " + dc.state())
+                              }
+                              override fun onMessage(b: DataChannel.Buffer?) {
+                                  if (b == null) return
+                                  val bytes = ByteArray(b.data.remaining())
+                                  b.data.get(bytes)
+                                  try {
+                                      handleMessage(sess, dc, bytes)
+                                  } catch (e: Exception) {
+                                      log("Fehler bei Nachricht: " + (e.message ?: e.javaClass.simpleName))
+                                  }
+                              }
+                          })
+                      }
+                      override fun onRenegotiationNeeded() {}
+                  })
+                  if (pc == null) {
+                      log("PeerConnection konnte nicht erstellt werden")
+                      return
+                  }
+                  sess.pc = pc
+                  pc.setRemoteDescription(object : SdpObs() {
+                      override fun onSetSuccess() {
+                          sess.remoteSet = true
+                          for (c in sess.pending) pc.addIceCandidate(c)
+                          sess.pending.clear()
+                          pc.createAnswer(object : SdpObs() {
+                              override fun onCreateSuccess(d: SessionDescription?) {
+                                  if (d == null) return
+                                  pc.setLocalDescription(SdpObs(), d)
+                                  sendSignal(sess, "CONNECTRESPONSE " + sess.id + " " + d.description)
+                                  sess.answerSent = true
+                                  log("Antwort (SDP) gesendet")
+                                  for (c in sess.localQ) sendSignal(sess, "CANDIDATEADD " + sess.id + " " + c.sdp)
+                                  sess.localQ.clear()
+                              }
+                              override fun onCreateFailure(e: String?) {
+                                  log("Antwort erstellen fehlgeschlagen: " + e)
+                              }
+                          }, MediaConstraints())
+                      }
+                      override fun onSetFailure(e: String?) {
+                          log("Angebot der PS5 abgelehnt: " + e)
+                      }
+                  }, SessionDescription(SessionDescription.Type.OFFER, sdp))
+              }
+
+              // ---------------------------------------------------------- Minecraft-Mini-Gespraech + Transfer
+
+              private fun handleMessage(sess: Sess, dc: DataChannel, raw: ByteArray) {
+                  if (raw.isEmpty()) return
+                  sess.msgs++
+                  if (sess.msgs <= 6) log("Nachricht " + sess.msgs + " (" + raw.size + " B): " + Wire.hex(raw, 20))
+                  val remaining = raw[0].toInt() and 0xff
+                  sess.frag.write(raw, 1, raw.size - 1)
+                  if (remaining > 0) return
+                  val payload = sess.frag.toByteArray()
+                  sess.frag.reset()
+                  var body = payload
+                  if (sess.comp) {
+                      if (body.isEmpty()) return
+                      val alg = body[0].toInt() and 0xff
+                      body = when (alg) {
+                          0xFF -> body.copyOfRange(1, body.size)
+                          0 -> inflate(body, 1)
+                          else -> {
+                              log("Kompression " + alg + " nicht unterstützt")
+                              return
+                          }
+                      }
+                  }
+                  var pos = 0
+                  while (pos < body.size) {
+                      val lp = Wire.readVar(body, pos)
+                      val len = lp.first
+                      pos = lp.second
+                      if (len < 0 || pos + len > body.size) {
+                          log("Ungültige Paketlänge")
+                          break
+                      }
+                      handlePacket(sess, dc, body.copyOfRange(pos, pos + len))
+                      pos += len
+                  }
+              }
+
+              private fun inflate(b: ByteArray, off: Int): ByteArray {
+                  val inf = Inflater(true)
+                  inf.setInput(b, off, b.size - off)
+                  val out = ByteArrayOutputStream()
+                  val buf = ByteArray(8192)
+                  while (!inf.finished()) {
+                      val n = inf.inflate(buf)
+                      if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
+                      out.write(buf, 0, n)
+                  }
+                  inf.end()
+                  return out.toByteArray()
+              }
+
+              private fun send(sess: Sess, dc: DataChannel, vararg pks: ByteArray) {
+                  val out = ByteArrayOutputStream()
+                  out.write(0)
+                  if (sess.comp) out.write(0xFF)
+                  for (p in pks) {
+                      out.write(Wire.varuint(p.size))
+                      out.write(p)
+                  }
+                  dc.send(DataChannel.Buffer(ByteBuffer.wrap(out.toByteArray()), true))
+              }
+
+              private fun handlePacket(sess: Sess, dc: DataChannel, pk: ByteArray) {
+                  val ip = Wire.readVar(pk, 0)
+                  val id = ip.first and 0x3FF
+                  when (id) {
+                      0xC1 -> {
+                          var proto = 0
+                          if (pk.size >= ip.second + 4) {
+                              proto = ByteBuffer.wrap(pk, ip.second, 4).order(ByteOrder.BIG_ENDIAN).int
+                          }
+                          log("PS5 → RequestNetworkSettings (Protokoll " + proto + ")")
+                          val settings = Wire.varuint(0x8F) + Wire.le16(0xFFFF) + Wire.le16(0) + byteArrayOf(0, 0, 0, 0, 0, 0)
+                          send(sess, dc, settings)
+                          sess.comp = true
+                      }
+                      0x01 -> {
+                          log("PS5 → Login")
+                          sess.loggedIn = true
+                          send(sess, dc, Wire.varuint(0x02) + byteArrayOf(0, 0, 0, 0))
+                          Thread.sleep(150)
+                          sendTransfer(sess, dc)
+                      }
+                      else -> {
+                          log("PS5 → Paket 0x" + Integer.toHexString(id))
+                          if (sess.loggedIn && sess.transfers < 6) sendTransfer(sess, dc)
+                      }
+                  }
+              }
+
+              private fun sendTransfer(sess: Sess, dc: DataChannel) {
+                  val body = Wire.varuint(0x55) + Wire.str(s.host) + Wire.le16(s.port) + byteArrayOf(0)
+                  send(sess, dc, body)
+                  sess.transfers++
+                  log("Transfer gesendet an " + s.host + ":" + s.port + " (" + sess.transfers + ")")
+                  if (!transferDone) {
+                      transferDone = true
+                      Live.joins = Live.joins + 1
+                      Live.status = "Transfer gesendet ✓"
+                      val t = Thread({
+                          try {
+                              Thread.sleep(8000)
+                          } catch (e: InterruptedException) {
+                          }
+                          log("Fertig – du kannst die App jetzt schließen.")
+                          stop()
+                      }, "flamme-finish")
+                      t.isDaemon = true
+                      t.start()
+                  }
+              }
+          }
+
+          // ------------------------------------------------------------------ Service
+
+          class ProxyService : Service() {
+              companion object {
+                  @Volatile
+                  var engine: NetherEngine? = null
+
+                  fun start(c: Context, s: Srv, protocol: Int, version: String) {
+                      val i = Intent(c, ProxyService::class.java)
+                          .putExtra("n", s.name).putExtra("h", s.host).putExtra("p", s.port)
+                          .putExtra("pr", protocol).putExtra("v", version)
+                      ContextCompat.startForegroundService(c, i)
+                  }
+
+                  fun stop(c: Context) {
+                      c.startService(Intent(c, ProxyService::class.java).setAction("STOP"))
+                  }
+              }
+
+              override fun onBind(i: Intent?): IBinder? = null
+
+              override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
+                  if (i == null || i.action == "STOP") {
+                      engine?.stop()
+                      engine = null
+                      stopForeground(STOP_FOREGROUND_REMOVE)
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  val name = i.getStringExtra("n") ?: "Server"
+                  val host = i.getStringExtra("h") ?: ""
+                  val port = i.getIntExtra("p", 19132)
+                  val protocol = i.getIntExtra("pr", 2225)
+                  val version = i.getStringExtra("v") ?: "1.26.60"
+
+                  val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  nm.createNotificationChannel(NotificationChannel("flamme", "Flamme SMP", NotificationManager.IMPORTANCE_LOW))
+                  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                  val stopPi = PendingIntent.getService(this, 1, Intent(this, ProxyService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
+                  val n = NotificationCompat.Builder(this, "flamme")
+                      .setSmallIcon(R.drawable.ic_notif)
+                      .setContentTitle("Flamme SMP zeigt deine Welt")
+                      .setContentText(name + " · " + host + ":" + port)
+                      .setContentIntent(open)
+                      .addAction(0, "Stoppen", stopPi)
+                      .setOngoing(true)
+                      .build()
+                  ServiceCompat.startForeground(this, 1, n, if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
+
+                  engine?.stop()
+                  val e = NetherEngine(applicationContext, Srv("run", name, host, port), protocol, version)
+                  e.onEnd = {
+                      if (engine === e) {
+                          engine = null
+                          stopSelf()
+                      }
+                  }
+                  engine = e
+                  e.start()
+                  return START_NOT_STICKY
+              }
+
+              override fun onDestroy() {
+                  engine?.stop()
+                  engine = null
+                  super.onDestroy()
+              }
+          }
+          FLAMME_EOF_13
+          mkdir -p app/src/main/java/de/flamme/smp
+          cat > app/src/main/java/de/flamme/smp/Community.kt <<'FLAMME_EOF_14'
           package de.flamme.smp
 
           import android.content.Context
@@ -1852,9 +2181,9 @@ jobs:
                   }
               }
           }
-          FLAMME_EOF_13
+          FLAMME_EOF_14
           mkdir -p tools
-          cat > tools/make_icons.py <<'FLAMME_EOF_14'
+          cat > tools/make_icons.py <<'FLAMME_EOF_15'
           import os
           import struct
           import sys
@@ -2022,7 +2351,7 @@ jobs:
           write_png(os.path.join(d, "logo.png"), 384, render(384, 0.94))
           write_png(os.path.join(d, "ic_launcher_foreground.png"), 432, render(432, 0.62))
           print("Logo erzeugt")
-          FLAMME_EOF_14
+          FLAMME_EOF_15
           echo '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' | base64 -d > app/flamme.jks
           python3 tools/make_icons.py .
 
